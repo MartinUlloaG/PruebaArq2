@@ -17,6 +17,11 @@ class Configuracion(BaseSettings):
     # pero el puerto está publicado solo en IPv4, y cada conexión quedaba esperando.
     postgres_host: str = "127.0.0.1"
 
+    # Secreto para firmar los JWT. Obligatorio y sin valor por defecto:
+    # si falta, la app no arranca (mejor que arrancar con un secreto débil).
+    jwt_secreto: str
+    jwt_minutos: int = 30
+
     @property
     def url_base_de_datos(self) -> str:
         return (

@@ -7,15 +7,12 @@ LAS CLAVES DE ESTOS USUARIOS SON SOLO DE DEMO. En la BD se guardan con hash
 Argon2; nunca reutilizarlas fuera de este proyecto.
 """
 
-from pwdlib import PasswordHash
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.infraestructura.base import Sesion
 from app.infraestructura.modelos import Inventario, MovimientoInventario, Producto, Usuario
-
-# Argon2id con los parámetros recomendados por pwdlib.
-hasheador = PasswordHash.recommended()
+from app.infraestructura.seguridad import hasheador
 
 USUARIOS_DEMO = [
     # (correo, clave de demo, rol)
