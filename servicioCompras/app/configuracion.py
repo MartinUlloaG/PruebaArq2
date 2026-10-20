@@ -13,7 +13,9 @@ class Configuracion(BaseSettings):
     postgres_password: str
     postgres_db: str
     postgres_port: int = 5440
-    postgres_host: str = "localhost"
+    # 127.0.0.1 y no "localhost": en Windows "localhost" intenta primero IPv6 (::1),
+    # pero el puerto está publicado solo en IPv4, y cada conexión quedaba esperando.
+    postgres_host: str = "127.0.0.1"
 
     @property
     def url_base_de_datos(self) -> str:
