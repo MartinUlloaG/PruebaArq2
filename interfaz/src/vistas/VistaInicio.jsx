@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 
 import { ROLES, seccionesPara } from '../modelosVista/roles'
 import { useSesion } from '../modelosVista/useSesion'
+import Catalogo from './Catalogo'
 
 export default function VistaInicio() {
   const usuario = useSesion((s) => s.usuario)
@@ -27,10 +28,7 @@ export default function VistaInicio() {
           ))}
         </ul>
       ) : (
-        <div className="vacio">
-          <h2>Todavía no tienes pedidos</h2>
-          <p>Cuando el catálogo esté disponible, tus compras aparecerán aquí con su estado.</p>
-        </div>
+        <Catalogo />
       )}
     </>
   )

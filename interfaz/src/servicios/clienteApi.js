@@ -22,6 +22,8 @@ const SIN_CONEXION =
   'No hay conexión con el servicio de compras. Revisa que esté encendido e inténtalo de nuevo.'
 
 function mensajeDeError(cuerpo, estado) {
+  // El 404 de FastAPI viene en inglés ("Not Found"); los demás detail ya son nuestros, en español.
+  if (estado === 404) return 'No encontramos esta información. Inténtalo de nuevo en unos minutos.'
   if (typeof cuerpo?.detail === 'string') return cuerpo.detail
   if (Array.isArray(cuerpo?.detail)) return 'Revisa los datos ingresados.'
   if (estado >= 500) return 'El servidor tuvo un problema. Inténtalo de nuevo en unos segundos.'

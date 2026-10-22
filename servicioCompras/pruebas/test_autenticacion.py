@@ -116,3 +116,17 @@ def test_permisos_por_rol(rol, ruta, codigo_esperado):
 def test_la_lista_de_usuarios_no_expone_hashes():
     respuesta = cliente_http.get("/administracion/usuarios", headers=_encabezado(_token("administrador")))
     assert all(set(u) == {"id", "correo", "rol"} for u in respuesta.json())
+
+
+# --- Catálogo: cualquier rol con sesión ----------------------------------------
+
+
+@pytest.mark.parametrize("rol", ["cliente", "operador", "administrador"])
+def test_el_catalogo_lo_ve_cualquier_rol_con_sesion(rol):
+    respuesta = cliente_http.get("/catalogo", headers=_encabezado(_token(rol)))
+    assert respuesta.status_code == 200
+    assert {"producto_id", "nombre", "precio", "disponibles"} <= set(respuesta.json()[0])
+
+
+def test_el_catalogo_sin_sesion_es_401():
+    assert cliente_http.get("/catalogo").status_code == 401

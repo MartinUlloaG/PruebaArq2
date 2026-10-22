@@ -1,14 +1,7 @@
+import { estadoStock } from '../modelosVista/stock'
 import { useRecurso } from '../modelosVista/useRecurso'
 import { listarInventario } from '../servicios/paneles'
 import EstadoCarga from './EstadoCarga'
-
-const POCO_STOCK = 5
-
-function estadoStock(cantidad) {
-  if (cantidad === 0) return { texto: 'Agotado', clase: 'agotado' }
-  if (cantidad <= POCO_STOCK) return { texto: 'Quedan pocos', clase: 'poco' }
-  return { texto: 'Disponible', clase: 'disponible' }
-}
 
 export default function VistaInventario() {
   const { datos, cargando, error, reintentar } = useRecurso(listarInventario)

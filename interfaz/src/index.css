@@ -530,6 +530,62 @@ main:focus {
   margin-bottom: 1rem;
 }
 
+/* ---------- Catálogo ---------- */
+.catalogo {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 1rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.producto {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1.1rem 1.2rem;
+  border: 1.5px solid var(--linea);
+  border-radius: var(--radio);
+  background: var(--superficie);
+}
+
+.producto__nombre {
+  margin: 0;
+  font-size: var(--t-2);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.producto__descripcion {
+  color: var(--tinta-suave);
+  font-size: var(--t-0);
+}
+
+/* El pie se empuja al fondo: precios alineados aunque las descripciones midan distinto. */
+.producto__pie {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: auto;
+  padding-top: 0.75rem;
+}
+
+.producto__precio {
+  font-size: var(--t-3);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+/* Agotado: se atenúa el precio, pero el texto "Agotado" mantiene su contraste. */
+.producto--agotado .producto__precio {
+  color: var(--tinta-suave);
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+
 /* ---------- Tablas ---------- */
 .tabla {
   width: 100%;

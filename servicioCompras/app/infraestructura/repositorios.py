@@ -24,10 +24,12 @@ class RepositorioInventario:
     def __init__(self, sesion: Session):
         self.sesion = sesion
 
-    def listar_con_producto(self) -> list[tuple[Producto, Inventario]]:
+    def listar_con_producto(self, solo_activos: bool = False) -> list[tuple[Producto, Inventario]]:
         consulta = (
             select(Producto, Inventario)
             .join(Inventario, Inventario.producto_id == Producto.id)
             .order_by(Producto.id)
         )
+        if solo_activos:
+            consulta = consulta.where(Producto.activo)
         return [(producto, inventario) for producto, inventario in self.sesion.execute(consulta)]
