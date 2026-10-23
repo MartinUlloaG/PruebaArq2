@@ -3,10 +3,16 @@
 Los endpoints piden datos al repositorio; no escriben SQL ni conocen las consultas.
 """
 
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
-from app.infraestructura.modelos import Inventario, Producto, Usuario
+from app.infraestructura.modelos import (
+    TIPOS_ENTRADA,
+    Inventario,
+    MovimientoInventario,
+    Producto,
+    Usuario,
+)
 
 
 class RepositorioUsuarios:
@@ -33,3 +39,15 @@ class RepositorioInventario:
         if solo_activos:
             consulta = consulta.where(Producto.activo)
         return [(producto, inventario) for producto, inventario in self.sesion.execute(consulta)]
+
+    def saldo_movimientos(self, producto_id: int) -> int:
+        """Auditoría: reconstruye el stock solo desde los movimientos (entradas - salidas).
+
+        Si no coincide con inventario.cantidad, algo cambió el stock sin dejar registro.
+        """
+        signo = case((MovimientoInventario.tipo.in_(TIPOS_ENTRADA), 1), else_=-1)
+        return self.sesion.scalar(
+            select(func.coalesce(func.sum(signo * MovimientoInventario.cantidad), 0)).where(
+                MovimientoInventario.producto_id == producto_id
+            )
+        )

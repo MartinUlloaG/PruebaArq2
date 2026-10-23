@@ -8,7 +8,15 @@ from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 
 from app.infraestructura.base import Sesion
-from app.infraestructura.modelos import Inventario, MovimientoInventario, Producto, Usuario
+from app.infraestructura.modelos import (
+    Inventario,
+    MovimientoInventario,
+    Pago,
+    Pedido,
+    Producto,
+    Usuario,
+)
+from app.infraestructura.repositorios import RepositorioInventario
 from app.infraestructura.semilla import sembrar
 
 
@@ -53,14 +61,38 @@ def test_la_bd_rechaza_stock_negativo():
         sesion.rollback()
 
 
-def test_el_stock_inicial_cuadra_con_los_movimientos():
+def test_la_bd_rechaza_total_y_monto_negativos():
+    sembrar()
+    with Sesion() as sesion:
+        usuario_id = sesion.scalar(select(Usuario.id))
+        sesion.add(Pedido(usuario_id=usuario_id, total=-1))
+        with pytest.raises(IntegrityError, match="ck_pedidos_total"):
+            sesion.commit()
+        sesion.rollback()
+
+        pedido = Pedido(usuario_id=usuario_id, total=0)
+        sesion.add(pedido)
+        sesion.flush()
+        sesion.add(Pago(pedido_id=pedido.id, monto=-1))
+        with pytest.raises(IntegrityError, match="ck_pagos_monto"):
+            sesion.commit()
+        sesion.rollback()  # el pedido de prueba tampoco queda guardado
+
+
+def test_no_existe_el_tipo_venta():
+    sembrar()
+    with Sesion() as sesion:
+        producto_id = sesion.scalar(select(Inventario.producto_id))
+        sesion.add(MovimientoInventario(producto_id=producto_id, tipo="venta", cantidad=1))
+        with pytest.raises(IntegrityError, match="ck_movimientos_inventario_tipo"):
+            sesion.commit()
+        sesion.rollback()
+
+
+def test_el_stock_cuadra_con_los_movimientos():
+    """Invariante: cantidad == entradas - salidas, para cada producto."""
     sembrar()
     with Sesion() as sesion:
         for inventario in sesion.scalars(select(Inventario)):
-            entradas = sesion.scalar(
-                select(func.coalesce(func.sum(MovimientoInventario.cantidad), 0)).where(
-                    MovimientoInventario.producto_id == inventario.producto_id,
-                    MovimientoInventario.tipo == "ajuste_entrada",
-                )
-            )
-            assert entradas == inventario.cantidad
+            saldo = RepositorioInventario(sesion).saldo_movimientos(inventario.producto_id)
+            assert saldo == inventario.cantidad

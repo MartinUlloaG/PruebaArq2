@@ -15,14 +15,15 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.infraestructura.base import Base
 
-# Los CHECK llevan nombre corto; base.py le antepone "ck_<tabla>_".
+# Los CHECK llevan su nombre completo (ck_<tabla>_<columna>), el mismo que tienen en la BD.
 ROLES = ("cliente", "operador", "administrador")
 ESTADOS_PEDIDO = ("pendiente", "stock_reservado", "pagado", "fallido")
-# El sentido lo da el tipo (la cantidad siempre es positiva):
-# reserva, venta y ajuste_salida restan; liberacion y ajuste_entrada suman.
-# El sentido lo da el tipo (la cantidad siempre es positiva):
-# reserva, venta y ajuste_salida restan; liberacion y ajuste_entrada suman.
-TIPOS_MOVIMIENTO = ("reserva", "liberacion", "venta", "ajuste_entrada", "ajuste_salida")
+# El sentido lo da el tipo (la cantidad siempre es positiva). No existe "venta":
+# vender es que el pedido pase a "pagado"; su stock ya salió con la reserva.
+# Invariante: inventario.cantidad == suma de entradas - suma de salidas.
+TIPOS_ENTRADA = ("liberacion", "ajuste_entrada")
+TIPOS_SALIDA = ("reserva", "ajuste_salida")
+TIPOS_MOVIMIENTO = TIPOS_SALIDA + TIPOS_ENTRADA
 ESTADOS_PAGO = ("pendiente", "autorizado", "rechazado")
 
 
@@ -37,7 +38,7 @@ def _creado_en() -> Mapped[datetime]:
 
 class Usuario(Base):
     __tablename__ = "usuarios"
-    __table_args__ = (_valores_permitidos("rol", ROLES, "rol"),)
+    __table_args__ = (_valores_permitidos("rol", ROLES, "ck_usuarios_rol"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     correo: Mapped[str] = mapped_column(String(255), unique=True)
@@ -48,7 +49,7 @@ class Usuario(Base):
 
 class Producto(Base):
     __tablename__ = "productos"
-    __table_args__ = (CheckConstraint("precio >= 0", name="precio"),)
+    __table_args__ = (CheckConstraint("precio >= 0", name="ck_productos_precio"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     nombre: Mapped[str] = mapped_column(String(200))
@@ -59,7 +60,7 @@ class Producto(Base):
 
 class Inventario(Base):
     __tablename__ = "inventario"
-    __table_args__ = (CheckConstraint("cantidad >= 0", name="cantidad"),)
+    __table_args__ = (CheckConstraint("cantidad >= 0", name="ck_inventario_cantidad"),)
 
     producto_id: Mapped[int] = mapped_column(
         ForeignKey("productos.id"), primary_key=True, autoincrement=False
@@ -69,7 +70,10 @@ class Inventario(Base):
 
 class Pedido(Base):
     __tablename__ = "pedidos"
-    __table_args__ = (_valores_permitidos("estado", ESTADOS_PEDIDO, "estado"),)
+    __table_args__ = (
+        _valores_permitidos("estado", ESTADOS_PEDIDO, "ck_pedidos_estado"),
+        CheckConstraint("total >= 0", name="ck_pedidos_total"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
@@ -82,7 +86,7 @@ class Pedido(Base):
 
 class ItemPedido(Base):
     __tablename__ = "items_pedido"
-    __table_args__ = (CheckConstraint("cantidad > 0", name="cantidad"),)
+    __table_args__ = (CheckConstraint("cantidad > 0", name="ck_items_pedido_cantidad"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     pedido_id: Mapped[int] = mapped_column(ForeignKey("pedidos.id"))
@@ -96,8 +100,8 @@ class ItemPedido(Base):
 class MovimientoInventario(Base):
     __tablename__ = "movimientos_inventario"
     __table_args__ = (
-        _valores_permitidos("tipo", TIPOS_MOVIMIENTO, "tipo"),
-        CheckConstraint("cantidad > 0", name="cantidad"),
+        _valores_permitidos("tipo", TIPOS_MOVIMIENTO, "ck_movimientos_inventario_tipo"),
+        CheckConstraint("cantidad > 0", name="ck_movimientos_inventario_cantidad"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -111,7 +115,8 @@ class MovimientoInventario(Base):
 class Pago(Base):
     __tablename__ = "pagos"
     __table_args__ = (
-        _valores_permitidos("estado", ESTADOS_PAGO, "estado"),
+        _valores_permitidos("estado", ESTADOS_PAGO, "ck_pagos_estado"),
+        CheckConstraint("monto >= 0", name="ck_pagos_monto"),
         UniqueConstraint("pedido_id", name="uq_pagos_pedido"),
     )
 

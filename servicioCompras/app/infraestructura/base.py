@@ -5,10 +5,11 @@ from app.configuracion import configuracion
 
 # Nombres predecibles para todas las restricciones. Alembic los necesita
 # para poder borrarlas o modificarlas en migraciones futuras.
+# Sin "ck": cada CHECK escribe su nombre completo en modelos.py, así el nombre
+# que se lee en el código es el mismo que aparece en la BD y en los errores.
 CONVENCION_NOMBRES = {
     "ix": "ix_%(column_0_label)s",
     "uq": "uq_%(table_name)s_%(column_0_name)s",
-    "ck": "ck_%(table_name)s_%(constraint_name)s",
     "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
     "pk": "pk_%(table_name)s",
 }
