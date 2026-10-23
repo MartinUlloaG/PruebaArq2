@@ -34,7 +34,7 @@ Fuentes originales (mandan sobre este resumen): enunciado y rúbrica en C:\\User
 
 Matices de la rúbrica que el resumen omitía: la 3.2 evalúa validaciones y manejo de errores junto con el login; la 3.1 exige que la interfaz envíe datos y se ALMACENEN (no basta con leer); criterio de aceptación: los diagramas deben representar el flujo IMPLEMENTADO (los de la Eva 1 tienen API Gateway y Kafka).
 
-Revisión de avance (informada el 22-oct-2026): no es la entrega final. Se presenta el informe, los avances del sistema y la arquitectura usada. La idea es mantener la arquitectura de la Eva 1 y defenderla; si se cambió algo, hay que justificarlo. Si la justificación no es válida, el trabajo queda hasta ahí; si es válida, se da una semana más. El informe de avance está en el escritorio: C:\\Users\\ullov\\OneDrive\\Desktop\\Informe\_Eva2\_avance.md.
+Revisión de avance (informada el 22-oct-2026): no es la entrega final. Se presenta el informe, los avances del sistema y la arquitectura usada. La idea es mantener la arquitectura de la Eva 1 y defenderla; si se cambió algo, hay que justificarlo. Si la justificación no es válida, el trabajo queda hasta ahí; si es válida, se da una semana más. Para esta revisión Martín quiere algo CHICO: lo funcional, explicar si se mantiene la arquitectura y mostrar algo simple. No un informe completo. Resumen de una página en el escritorio: C:\\Users\\ullov\\OneDrive\\Desktop\\Arquitectura\_Eva2\_se\_mantiene.md.
 
 
 
