@@ -16,7 +16,7 @@ export default function VistaInicio() {
         {ROLES[usuario.rol].puede}
       </p>
 
-      {secciones.length > 0 ? (
+      {usuario.rol !== 'cliente' ? (
         <ul className="accesos">
           {secciones.map((s) => (
             <li key={s.ruta}>

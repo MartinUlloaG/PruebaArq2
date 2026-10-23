@@ -300,6 +300,11 @@ main:focus {
   color: var(--aviso);
 }
 
+.mensaje--exito {
+  background: var(--superficie);
+  color: var(--senal);
+}
+
 .cargando {
   color: var(--tinta-suave);
 }
@@ -584,6 +589,14 @@ main:focus {
   color: var(--tinta-suave);
   text-decoration: line-through;
   text-decoration-thickness: 1.5px;
+}
+
+.producto__comprar {
+  margin-top: 0.75rem;
+}
+
+.producto__comprar:disabled {
+  cursor: not-allowed;
 }
 
 /* ---------- Tablas ---------- */

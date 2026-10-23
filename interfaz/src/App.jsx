@@ -5,6 +5,7 @@ import RutaProtegida from './vistas/RutaProtegida'
 import VistaIngreso from './vistas/VistaIngreso'
 import VistaInicio from './vistas/VistaInicio'
 import VistaInventario from './vistas/VistaInventario'
+import VistaPedidos from './vistas/VistaPedidos'
 import VistaUsuarios from './vistas/VistaUsuarios'
 
 export default function App() {
@@ -19,6 +20,14 @@ export default function App() {
         }
       >
         <Route index element={<VistaInicio />} />
+        <Route
+          path="pedidos"
+          element={
+            <RutaProtegida roles={['cliente']}>
+              <VistaPedidos />
+            </RutaProtegida>
+          }
+        />
         <Route
           path="inventario"
           element={

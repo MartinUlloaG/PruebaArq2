@@ -21,5 +21,10 @@ export function useRecurso(cargar) {
     setIntento((n) => n + 1)
   }
 
-  return { ...estado, reintentar }
+  // Vuelve a pedir los datos sin mostrar "Cargando…": la lista no parpadea ni pierde el foco.
+  function recargar() {
+    setIntento((n) => n + 1)
+  }
+
+  return { ...estado, reintentar, recargar }
 }

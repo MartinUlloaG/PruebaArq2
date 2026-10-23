@@ -95,6 +95,7 @@ class ItemPedido(Base):
     precio_unitario: Mapped[int]  # precio congelado al momento de comprar
 
     pedido: Mapped["Pedido"] = relationship(back_populates="items")
+    producto: Mapped["Producto"] = relationship()
 
 
 class MovimientoInventario(Base):

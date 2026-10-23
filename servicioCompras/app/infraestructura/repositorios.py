@@ -3,13 +3,15 @@
 Los endpoints piden datos al repositorio; no escriben SQL ni conocen las consultas.
 """
 
-from sqlalchemy import case, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy import case, func, select, update
+from sqlalchemy.orm import Session, selectinload
 
 from app.infraestructura.modelos import (
     TIPOS_ENTRADA,
     Inventario,
+    ItemPedido,
     MovimientoInventario,
+    Pedido,
     Producto,
     Usuario,
 )
@@ -26,9 +28,41 @@ class RepositorioUsuarios:
         return list(self.sesion.scalars(select(Usuario).order_by(Usuario.id)))
 
 
+class RepositorioProductos:
+    def __init__(self, sesion: Session):
+        self.sesion = sesion
+
+    def buscar_activo(self, producto_id: int) -> Producto | None:
+        return self.sesion.scalar(
+            select(Producto).where(Producto.id == producto_id, Producto.activo)
+        )
+
+
 class RepositorioInventario:
     def __init__(self, sesion: Session):
         self.sesion = sesion
+
+    def reservar(self, producto_id: int, cantidad: int, pedido_id: int) -> int | None:
+        """Descuenta stock solo si alcanza, y deja el movimiento "reserva" en la auditoría.
+
+        UPDATE condicional: la condición (cantidad >= n) se evalúa en la misma instrucción
+        que escribe. Si dos compras llegan juntas, Postgres bloquea la fila; la segunda
+        espera y vuelve a evaluar la condición con el stock ya descontado.
+        Devuelve el stock que queda, o None si no alcanzaba (no se tocó nada).
+        """
+        restante = self.sesion.scalar(
+            update(Inventario)
+            .where(Inventario.producto_id == producto_id, Inventario.cantidad >= cantidad)
+            .values(cantidad=Inventario.cantidad - cantidad)
+            .returning(Inventario.cantidad)
+        )
+        if restante is not None:
+            self.sesion.add(
+                MovimientoInventario(
+                    producto_id=producto_id, pedido_id=pedido_id, tipo="reserva", cantidad=cantidad
+                )
+            )
+        return restante
 
     def listar_con_producto(self, solo_activos: bool = False) -> list[tuple[Producto, Inventario]]:
         consulta = (
@@ -51,3 +85,33 @@ class RepositorioInventario:
                 MovimientoInventario.producto_id == producto_id
             )
         )
+
+
+class RepositorioPedidos:
+    def __init__(self, sesion: Session):
+        self.sesion = sesion
+
+    def crear(self, usuario_id: int, producto: Producto, cantidad: int, estado: str) -> Pedido:
+        """El precio se copia al ítem: si el producto cambia de precio, el pedido no cambia."""
+        pedido = Pedido(
+            usuario_id=usuario_id,
+            estado=estado,
+            total=producto.precio * cantidad,
+            items=[
+                ItemPedido(
+                    producto_id=producto.id, cantidad=cantidad, precio_unitario=producto.precio
+                )
+            ],
+        )
+        self.sesion.add(pedido)
+        self.sesion.flush()  # obtiene pedido.id sin cerrar la transacción
+        return pedido
+
+    def listar_de_usuario(self, usuario_id: int) -> list[Pedido]:
+        consulta = (
+            select(Pedido)
+            .where(Pedido.usuario_id == usuario_id)
+            .options(selectinload(Pedido.items).selectinload(ItemPedido.producto))
+            .order_by(Pedido.id.desc())
+        )
+        return list(self.sesion.scalars(consulta))
