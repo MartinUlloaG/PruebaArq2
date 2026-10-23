@@ -37,8 +37,8 @@ export default function Marco() {
         Saltar al contenido
       </a>
       <header className="marco__encabezado">
-        <NavLink to="/" className="marca" aria-label="voltio, ir al inicio">
-          voltio
+        <NavLink to="/" className="marca" aria-label="Tienda Arquitectura de Software, ir al inicio">
+          Tienda Arquitectura de Software
         </NavLink>
         <nav aria-label="Secciones" className="marco__nav">
           <NavLink to="/" end>

@@ -60,7 +60,7 @@ export default function VistaIngreso() {
         Saltar al formulario
       </a>
       <header className="ingreso__marca">
-        <span className="marca">voltio</span>
+        <span className="marca">Tienda Arquitectura de Software</span>
       </header>
 
       <main className="ingreso__cuerpo">

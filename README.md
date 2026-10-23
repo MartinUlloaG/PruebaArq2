@@ -1,4 +1,4 @@
-# voltio: módulo de compras (Evaluación Sumativa 2, Arquitectura de Software)
+# Tienda Arquitectura de Software: módulo de compras (Evaluación Sumativa 2, Arquitectura de Software)
 
 Módulo funcional del **Caso 3: e-commerce masivo de alta concurrencia con tolerancia a fallos**.
 Implementa un flujo vertical completo: ingreso con roles → catálogo → compra con reserva de stock
