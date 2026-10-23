@@ -152,6 +152,12 @@ Total: 36 pruebas pasando (python -m pytest). Pedidos de la demo quedan en estad
 
 Pendiente para la semana extra, en orden: pieza 4 (pasarelaSimulada + pago + idempotencia + compensación con "liberacion"), pieza 5 (Circuit Breaker), diagramas actualizados al flujo implementado, video. Docker por servicio (pieza 6) y recomendaciones solo si sobra tiempo.
 
+Estado al 23-oct-2026 (cierre de chat):
+- Informe Eva 2 en LaTeX: la versión que manda es la de Overleaf (Martín la edita allá). La copia base está en C:\\Users\\ullov\\OneDrive\\Desktop\\informe\_eva2.tex. Se sacó la tabla "Correcciones a la Eva 1" (era sobre la entrega, no sobre la arquitectura). Sección 1 = requisitos, qué se mantiene y cambios C1 a C6. Faltan las imágenes: 5 diagramas (Desktop\\diagramas\_eva2\_plantuml.txt, renderizar con draw.io) y 5 capturas (los nombres están en el .tex).
+- Resumen en palabras simples para la revisión: Desktop\\Arquitectura\_Eva2\_se\_mantiene.txt (Martín lo reescribió con sus palabras; tiene 3 frases imprecisas por revisar: "estadoCompra", Postgres justificado "por la cantidad de cargas" y "solo cambio" en vez de "solo inserción").
+- La demostración comparar\_sobreventa usa una pausa artificial de 0,01 s entre leer y escribir (simula trabajo); se debe decir si preguntan. La prueba automática del UPDATE condicional no usa pausa.
+- Texto pendiente de corregir: la pantalla de inicio dice que el operador "registra ajustes de inventario", pero eso no existe (solo ve el inventario).
+
 
 
 \## 10. Plan de trabajo (una pieza por vez, cada una cierra con una prueba que debe pasar)
