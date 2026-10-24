@@ -1,93 +1,117 @@
-# Tienda Arquitectura de Software: módulo de compras (Evaluación Sumativa 2, Arquitectura de Software)
+# Tienda Arquitectura de Software - Eva 2
 
-Módulo funcional del **Caso 3: e-commerce masivo de alta concurrencia con tolerancia a fallos**.
-Implementa un flujo vertical completo: ingreso con roles → catálogo → compra con reserva de stock
-sin sobreventa → pago en la pasarela (idempotente; si falla, el stock vuelve) → pedido guardado en PostgreSQL → consulta de pedidos e inventario.
+Módulo de compras del caso 3 (e-commerce con mucha concurrencia y tolerancia a fallos).
+Se puede iniciar sesión con 3 roles, ver el catálogo, comprar sin que se sobrevenda el stock,
+pagar contra una pasarela simulada y ver los pedidos y el inventario.
 
-| Componente | Carpeta | Estado |
-|---|---|---|
-| Servicio de compras (FastAPI + PostgreSQL) | `servicioCompras/` | Implementado |
-| Interfaz (React + Vite + Zustand, MVVM) | `interfaz/` | Implementado |
-| Pasarela de pago simulada | `pasarelaSimulada/` | Implementado (paso 2 de la Saga) |
-| Servicio de recomendaciones | `servicioRecomendaciones/` | Pendiente (servicio secundario) |
+Son 3 partes:
+- servicioCompras: el backend (FastAPI + PostgreSQL)
+- pasarelaSimulada: la pasarela de pago, corre aparte en el puerto 8001
+- interfaz: el front (React + Vite + Zustand)
 
-## Requisitos
+servicioRecomendaciones todavía no está terminado.
 
-- Windows 10/11 (los comandos son para `cmd`; en Linux o macOS solo cambian las rutas del venv)
+## Qué se necesita
+
+- Windows (los comandos son para cmd)
 - Python 3.13
 - Node.js 24
-- Docker Desktop 29 con Docker Compose 5 (**debe estar abierto** antes de empezar)
+- Docker Desktop abierto (si no está abierto la base de datos no levanta)
 
-## Puesta en marcha (primera vez)
+## Primera vez
+
+Copiar el .env.ejemplo como .env y cambiar la clave de la base y el secreto del JWT:
 
 ```bat
-:: 1. Variables de entorno: copiar la plantilla y cambiar la clave y el secreto JWT
 cd C:\comercio
 copy .env.ejemplo .env
 notepad .env
+```
 
-:: 2. Base de datos (PostgreSQL 16, publicada solo en 127.0.0.1:5440)
+Levantar la base de datos:
+
+```bat
 docker compose up -d
+```
 
-:: 3. Servicio de compras: dependencias, esquema y datos de demo
-cd servicioCompras
+Instalar el backend, crear las tablas y cargar los datos de prueba:
+
+```bat
+cd C:\comercio\servicioCompras
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r dependencias.txt
 alembic upgrade head
 python -m app.infraestructura.semilla
+```
 
-:: 4. Interfaz (en otra consola)
+La semilla se puede correr varias veces, no duplica nada.
+
+Instalar el front:
+
+```bat
 cd C:\comercio\interfaz
 npm install
 ```
 
-La semilla es idempotente: se puede correr varias veces sin duplicar usuarios ni productos.
+## Cómo levantarlo
 
-## Ejecutar
+Ojo: cada servicio va en su propia consola. uvicorn y npm run dev se quedan corriendo, entonces
+si se pega todo en la misma consola lo que viene después no se ejecuta.
 
-> **Una consola por servicio.** `uvicorn` y `npm run dev` se quedan corriendo y ocupan la consola:
-> si se pegan todos los comandos en la misma, los siguientes no corren hasta que el anterior se
-> detiene. Antes de empezar: Docker Desktop abierto y `docker compose up -d` en `C:\comercio`.
+Antes, con Docker Desktop abierto, en C:\comercio: `docker compose up -d`
+
+Consola 1, backend (queda en http://127.0.0.1:8000, la documentación está en /docs):
 
 ```bat
-:: Consola 1: servicio de compras (API en http://127.0.0.1:8000, documentación en /docs)
 cd C:\comercio\servicioCompras
 .venv\Scripts\activate
 uvicorn app.principal:app --reload
+```
 
-:: Consola 2: pasarela de pago simulada (puerto 8001). Usa el mismo venv: ya tiene FastAPI
+Consola 2, pasarela (usa el mismo venv del backend porque ya tiene FastAPI):
+
+```bat
 cd C:\comercio\pasarelaSimulada
 ..\servicioCompras\.venv\Scripts\activate
 uvicorn pasarela:app --port 8001
+```
 
-:: Consola 3: interfaz (abrir http://localhost:5173)
+Consola 3, front (abrir http://localhost:5173):
+
+```bat
 cd C:\comercio\interfaz
 npm run dev
 ```
 
-La pasarela se puede poner en otro modo sin reiniciarla, desde http://127.0.0.1:8001/docs
-(`PUT /simulacion`): `aprueba`, `rechaza` (pago rechazado: el stock vuelve), `lenta` (tarda más
-que el tiempo límite de 2 s) o `falla` (503). Con 3 fallas seguidas el Circuit Breaker se abre y
-durante 10 s la compra responde al instante sin llamar a la pasarela. `GET /cobros` muestra los
-cobros hechos: la misma clave de idempotencia nunca genera dos.
+Si la pasarela no está corriendo igual se puede iniciar sesión, pero al comprar sale que la
+pasarela no responde.
 
-La interfaz reenvía `/api` al servicio de compras (ver `interfaz/vite.config.js`), así que no hace falta CORS.
+## Probar la pasarela
 
-## Usuarios de demostración
+En http://127.0.0.1:8001/docs con PUT /simulacion se cambia el modo sin reiniciarla:
+- aprueba: aprueba todo
+- rechaza: rechaza el pago y el stock se devuelve
+- lenta: se demora más de los 2 segundos que espera el backend
+- falla: responde error 503
 
-> **SOLO PARA DEMO.** Estas claves existen únicamente para probar el módulo en local. En la base
-> de datos se guardan con hash **Argon2id** (nunca en texto plano). No reutilizarlas en ningún otro sistema.
+Si falla 3 veces seguidas se abre el Circuit Breaker y durante 10 segundos la compra responde
+al tiro sin llamar a la pasarela. En GET /cobros se ven los cobros hechos, y si llega la misma
+clave de idempotencia dos veces se cobra una sola vez.
 
-| Rol | Correo | Clave | Qué puede hacer |
-|---|---|---|---|
-| Cliente | `cliente@demo.cl` | `Cliente-Demo-2026` | Ver el catálogo, comprar, ver sus pedidos |
-| Operador | `operador@demo.cl` | `Operador-Demo-2026` | Ver el inventario |
-| Administrador | `admin@demo.cl` | `Admin-Demo-2026` | Ver el inventario y los usuarios |
+## Usuarios de prueba
 
-En modo desarrollo, la pantalla de ingreso muestra estas cuentas para entrar con un clic.
+Estas claves son solo para probar en local. En la base se guardan con hash Argon2id.
+
+- Cliente: cliente@demo.cl / Cliente-Demo-2026 (ve el catálogo, compra y ve sus pedidos)
+- Operador: operador@demo.cl / Operador-Demo-2026 (ve el inventario)
+- Administrador: admin@demo.cl / Admin-Demo-2026 (ve el inventario y los usuarios)
+
+En la pantalla de ingreso aparecen para entrar con un clic.
 
 ## Pruebas
+
+Con la base de datos arriba:
 
 ```bat
 cd C:\comercio\servicioCompras
@@ -95,41 +119,35 @@ cd C:\comercio\servicioCompras
 python -m pytest
 ```
 
-Requieren la base de datos arriba y migrada. Destacan:
+Las más importantes:
+- test_pedidos.py: 100 compras al mismo tiempo de un producto con stock 1 y solo 1 se acepta.
+  También que la misma clave de idempotencia no cobre dos veces, y que si el pago se rechaza o la
+  pasarela se cae el stock vuelve.
+- test_circuit_breaker.py: los estados cerrado, abierto y semiabierto.
+- test_autenticacion.py: un cliente no puede entrar a las rutas del operador ni del administrador.
+- test_esquema.py: la base no deja stock negativo y el stock cuadra con los movimientos.
 
-- `pruebas/test_pedidos.py`: **stock 1 y 100 compras simultáneas, exactamente 1 éxito**; **la misma
-  clave de idempotencia dos veces genera un solo cobro**; pago rechazado (402) o pasarela caída (503)
-  devuelven el stock; con la pasarela lenta el Circuit Breaker se abre; 409 sin stock, 422 con
-  cantidad inválida, 403 si compra alguien que no es cliente, 401 sin sesión.
-- `pruebas/test_circuit_breaker.py`: estados cerrado, abierto y semiabierto.
-- `pruebas/test_autenticacion.py`: un cliente recibe 403 en rutas de operador y administrador;
-  mismo mensaje para correo inexistente y clave incorrecta.
-- `pruebas/test_esquema.py`: la base de datos rechaza stock, totales y montos negativos; el stock cuadra con los
-  movimientos de inventario (entradas − salidas).
-
-Demostración comparativa de sobreventa (la usada en el informe y el video):
+La comparación de sobreventa que sale en el informe:
 
 ```bat
 python -m demostraciones.comparar_sobreventa
 ```
 
-## Estructura
+## Carpetas
 
 ```
-servicioCompras/
-  app/api/              Endpoints HTTP (validación con Pydantic, roles, códigos de error)
-  app/dominio/          Reglas de negocio (compras.py: reserva de stock, paso 1 de la Saga)
-  app/infraestructura/  Modelos, Repository (único lugar con consultas), seguridad, semilla
-  migraciones/          Alembic
-  pruebas/              pytest
-interfaz/src/
-  vistas/               View (componentes React)
-  modelosVista/         ViewModel (estado de sesión con Zustand, hooks de compra y carga)
-  servicios/            Acceso a la API (único punto de salida HTTP)
+servicioCompras/app/api              endpoints, validaciones y roles
+servicioCompras/app/dominio          reglas de la compra (la Saga)
+servicioCompras/app/infraestructura  modelos, repositorios, seguridad, circuit breaker
+servicioCompras/migraciones          alembic
+servicioCompras/pruebas              pytest
+interfaz/src/vistas                  las pantallas (View)
+interfaz/src/modelosVista            el estado (ViewModel)
+interfaz/src/servicios               las llamadas a la API
 ```
 
-## Seguridad en local
+## Seguridad
 
-- El `.env` no se versiona; `.env.ejemplo` es la plantilla sin secretos.
-- PostgreSQL se publica solo en `127.0.0.1`: no queda expuesto a la red local.
-- Los tokens JWT (HS256) vencen a los 30 minutos.
+- El .env no se sube al repo, solo el .env.ejemplo sin secretos.
+- La base de datos solo escucha en 127.0.0.1, no queda abierta a la red.
+- El token de sesión dura 30 minutos.
