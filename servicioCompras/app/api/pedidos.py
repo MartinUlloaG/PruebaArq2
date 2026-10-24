@@ -1,18 +1,17 @@
-"""Compras del cliente: comprar (Saga con pago) y ver sus pedidos."""
+"""Compras del cliente: comprar (inicia la Saga) y ver sus pedidos."""
 
 import hashlib
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Header, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.api.dependencias import UsuarioActual, obtener_pasarela, obtener_sesion, requerir_rol
+from app.api.dependencias import UsuarioActual, obtener_sesion, requerir_rol
 from app.dominio import compras
 from app.infraestructura.modelos import Pedido
 from app.infraestructura.repositorios import RepositorioIdempotencia, RepositorioPedidos
-from app.infraestructura.servicios_externos import ClientePasarela
 
 enrutador = APIRouter(prefix="/pedidos", tags=["pedidos"])
 solo_clientes = requerir_rol("cliente")
@@ -21,8 +20,6 @@ solo_clientes = requerir_rol("cliente")
 CODIGOS_ERROR = {
     compras.ProductoNoDisponible: status.HTTP_404_NOT_FOUND,
     compras.StockInsuficiente: status.HTTP_409_CONFLICT,
-    compras.PagoRechazado: status.HTTP_402_PAYMENT_REQUIRED,
-    compras.PagoNoDisponible: status.HTTP_503_SERVICE_UNAVAILABLE,
 }
 
 
@@ -68,18 +65,19 @@ def _error(codigo: int, mensaje: str) -> JSONResponse:
     return JSONResponse({"detail": mensaje}, status_code=codigo)
 
 
-@enrutador.post("", status_code=status.HTTP_201_CREATED, response_model=PedidoRespuesta)
+@enrutador.post("", status_code=status.HTTP_202_ACCEPTED, response_model=PedidoRespuesta)
 def comprar(
     solicitud: SolicitudCompra,
     clave: str = Header(alias="Idempotency-Key", min_length=1, max_length=100),
     usuario: UsuarioActual = Depends(solo_clientes),
     sesion: Session = Depends(obtener_sesion),
-    pasarela: ClientePasarela = Depends(obtener_pasarela),
 ):
-    """Receptor idempotente: la interfaz manda una clave nueva por cada compra.
+    """Reserva el stock y deja el pago en camino por Kafka. Responde 202: el pago se
+    resuelve después, y la interfaz consulta GET /pedidos/{id} hasta ver el resultado.
 
-    Si la misma solicitud llega dos veces (doble clic, reintento de red), la segunda
-    recibe la respuesta guardada de la primera y no se vuelve a reservar ni a cobrar.
+    Receptor idempotente: la interfaz manda una clave nueva por cada compra. Si la
+    misma solicitud llega dos veces (doble clic, reintento de red), la segunda recibe
+    la respuesta guardada de la primera y no se vuelve a reservar ni a cobrar.
     """
     huella = hashlib.sha256(solicitud.model_dump_json().encode()).hexdigest()
     idempotencia = RepositorioIdempotencia(sesion)
@@ -96,10 +94,8 @@ def comprar(
         return JSONResponse(previa.cuerpo_respuesta, status_code=previa.codigo_respuesta)
 
     try:
-        pedido = compras.comprar(
-            sesion, pasarela, usuario.id, solicitud.producto_id, solicitud.cantidad
-        )
-        codigo, cuerpo = status.HTTP_201_CREATED, _a_respuesta(pedido).model_dump(mode="json")
+        pedido = compras.iniciar_compra(sesion, usuario.id, solicitud.producto_id, solicitud.cantidad)
+        codigo, cuerpo = status.HTTP_202_ACCEPTED, _a_respuesta(pedido).model_dump(mode="json")
     except compras.ErrorCompra as error:
         codigo, cuerpo = CODIGOS_ERROR[type(error)], {"detail": str(error)}
 
@@ -114,3 +110,16 @@ def mis_pedidos(
     sesion: Session = Depends(obtener_sesion),
 ):
     return [_a_respuesta(p) for p in RepositorioPedidos(sesion).listar_de_usuario(usuario.id)]
+
+
+@enrutador.get("/{pedido_id}", response_model=PedidoRespuesta)
+def ver_pedido(
+    pedido_id: int,
+    usuario: UsuarioActual = Depends(solo_clientes),
+    sesion: Session = Depends(obtener_sesion),
+):
+    """Para seguir la Saga: stock_reservado (pago en proceso), pagado o fallido."""
+    pedido = RepositorioPedidos(sesion).buscar_de_usuario(pedido_id, usuario.id)
+    if pedido is None:  # tampoco se revela si existe un pedido de otro cliente
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No encontramos ese pedido.")
+    return _a_respuesta(pedido)

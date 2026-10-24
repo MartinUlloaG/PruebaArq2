@@ -1,25 +1,32 @@
-"""Reglas de la compra: la Saga orquestada (sin broker, dentro del servicio de compras).
+"""Reglas de la compra: la Saga orquestada sobre Kafka.
 
-  Paso 1. Reservar el stock (transacción local: pedido + descuento + movimiento "reserva").
-  Paso 2. Autorizar el pago en la pasarela (servicio externo, con tiempo límite y Circuit Breaker).
-  Paso 3. Confirmar (pedido "pagado") o compensar: devolver el stock con un movimiento
-          "liberacion" y dejar el pedido "fallido".
+  Paso 1. Reservar el stock y dejar en el outbox la solicitud "autorizar pago",
+          en UNA transacción (pedido + descuento + movimiento + mensaje).
+  Paso 2. El servicio de pagos lee la solicitud, cobra en la pasarela y publica el
+          resultado en pagos.resultados (eso pasa en otro proceso: servicioPagos).
+  Paso 3. Al llegar el resultado: pedido "pagado", o compensar devolviendo el stock
+          (movimiento "liberacion") y dejar el pedido "fallido".
 
-No hay transacción distribuida: cada paso confirma su propia transacción local, y si el
-paso 2 falla, el paso 1 se deshace con una acción contraria (la compensación).
-El estado de la Saga queda en pedidos.estado.
+Reserva con TTL: si el resultado no llega a tiempo (servicio de pagos caído, pasarela
+caída, mensaje en la DLQ), la reserva vence y también se compensa. El stock nunca queda
+tomado para siempre.
+
+No hay transacción distribuida: cada paso confirma su propia transacción local. El
+estado de la Saga queda en pedidos.estado.
 """
 
 from sqlalchemy.orm import Session
 
+from app.infraestructura import mensajeria
 from app.infraestructura.modelos import Pedido
 from app.infraestructura.repositorios import (
+    RepositorioEventos,
     RepositorioInventario,
+    RepositorioOutbox,
     RepositorioPagos,
     RepositorioPedidos,
     RepositorioProductos,
 )
-from app.infraestructura.servicios_externos import ClientePasarela, ServicioNoDisponible
 
 # Límite por compra: en un evento masivo evita que un solo cliente acapare el stock.
 MAXIMO_POR_COMPRA = 10
@@ -37,16 +44,8 @@ class StockInsuficiente(ErrorCompra):
     pass
 
 
-class PagoRechazado(ErrorCompra):
-    pass
-
-
-class PagoNoDisponible(ErrorCompra):
-    pass
-
-
 def reservar(sesion: Session, usuario_id: int, producto_id: int, cantidad: int) -> Pedido:
-    """Paso 1. Quien llama confirma (commit); si se lanza una excepción, no queda nada."""
+    """Reserva el stock. Quien llama confirma (commit); si se lanza una excepción, no queda nada."""
     producto = RepositorioProductos(sesion).buscar_activo(producto_id)
     if producto is None:
         raise ProductoNoDisponible("El producto no existe o no está a la venta.")
@@ -59,45 +58,67 @@ def reservar(sesion: Session, usuario_id: int, producto_id: int, cantidad: int) 
     return pedido
 
 
-def comprar(
-    sesion: Session, pasarela: ClientePasarela, usuario_id: int, producto_id: int, cantidad: int
-) -> Pedido:
-    """La Saga completa. Devuelve el pedido pagado o lanza un ErrorCompra."""
+def iniciar_compra(sesion: Session, usuario_id: int, producto_id: int, cantidad: int) -> Pedido:
+    """Paso 1 de la Saga. Devuelve el pedido con el stock reservado y el pago en camino."""
     try:
         pedido = reservar(sesion, usuario_id, producto_id, cantidad)
     except ErrorCompra:
         sesion.rollback()  # no queda ni el pedido ni el descuento
         raise
-    # La reserva se confirma ANTES de llamar afuera: no se mantiene abierta una
-    # transacción (ni el bloqueo de la fila del stock) mientras se espera a la pasarela.
+    RepositorioOutbox(sesion).agregar(
+        mensajeria.SOLICITUDES_PAGO,
+        clave=str(pedido.id),
+        contenido={
+            "id_evento": f"solicitud-pedido-{pedido.id}",
+            "pedido_id": pedido.id,
+            "monto": pedido.total,
+            # La pasarela no cobra dos veces la misma clave, aunque la solicitud se reintente.
+            "clave_idempotencia": f"pedido-{pedido.id}",
+        },
+    )
     sesion.commit()
+    return pedido
 
-    try:
-        # Clave por pedido: si este cobro se reintenta, la pasarela no cobra dos veces.
-        resultado = pasarela.autorizar(pedido.id, pedido.total, f"pedido-{pedido.id}")
-    except ServicioNoDisponible as error:
-        # Límite conocido: ante un tiempo límite no se sabe si la pasarela alcanzó a
-        # cobrar. En producción se concilia después, consultándola con la misma clave
-        # ("pedido-<id>"); aquí se compensa directamente.
-        _compensar(sesion, pedido)
-        raise PagoNoDisponible(
-            "La pasarela de pago no responde. Tu pedido no se completó y el stock quedó "
-            "libre. Inténtalo en unos minutos."
-        ) from error
+
+def aplicar_resultado_pago(sesion: Session, evento: dict) -> None:
+    """Paso 3 de la Saga. Consumidor idempotente: un evento repetido no hace nada."""
+    if not RepositorioEventos(sesion).registrar(evento["id_evento"]):
+        sesion.rollback()
+        return
+
+    pedido = RepositorioPedidos(sesion).buscar_para_actualizar(evento["pedido_id"])
+    if pedido is None or pedido.estado != "stock_reservado":
+        # Llegó tarde: la reserva ya venció y el stock se devolvió. Si igual se cobró,
+        # no se puede arreglar solo: va a la DLQ para revisarlo a mano (y reembolsar).
+        if evento["autorizado"]:
+            RepositorioOutbox(sesion).agregar(
+                mensajeria.MUERTOS,
+                clave=str(evento["pedido_id"]),
+                contenido={"motivo": "Cobro autorizado de un pedido que ya no estaba vigente.", "evento": evento},
+            )
+        sesion.commit()
+        return
 
     RepositorioPagos(sesion).registrar(
         pedido.id,
         pedido.total,
-        estado="autorizado" if resultado.autorizado else "rechazado",
-        referencia=resultado.referencia,
+        estado="autorizado" if evento["autorizado"] else "rechazado",
+        referencia=evento.get("referencia"),
     )
-    if not resultado.autorizado:
+    if evento["autorizado"]:
+        pedido.estado = "pagado"
+    else:
         _compensar(sesion, pedido)
-        raise PagoRechazado(f"El pago fue rechazado: {resultado.motivo} No se hizo ningún cobro.")
-
-    pedido.estado = "pagado"
     sesion.commit()
-    return pedido
+
+
+def expirar_reservas(sesion: Session, segundos: int) -> int:
+    """TTL de la reserva: compensa los pedidos que esperan el pago hace demasiado."""
+    vencidos = RepositorioPedidos(sesion).reservas_vencidas(segundos)
+    for pedido in vencidos:
+        _compensar(sesion, pedido)
+    sesion.commit()
+    return len(vencidos)
 
 
 def _compensar(sesion: Session, pedido: Pedido) -> None:
@@ -106,4 +127,3 @@ def _compensar(sesion: Session, pedido: Pedido) -> None:
     for item in pedido.items:
         inventario.liberar(item.producto_id, item.cantidad, pedido.id)
     pedido.estado = "fallido"
-    sesion.commit()

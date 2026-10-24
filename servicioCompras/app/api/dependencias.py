@@ -27,11 +27,6 @@ def obtener_sesion() -> Iterator[Session]:
         yield sesion
 
 
-def obtener_pasarela() -> servicios_externos.ClientePasarela:
-    """Las pruebas la reemplazan (dependency_overrides) por una pasarela controlada."""
-    return servicios_externos.pasarela
-
-
 def obtener_recomendaciones() -> servicios_externos.ClienteRecomendaciones:
     return servicios_externos.recomendaciones
 

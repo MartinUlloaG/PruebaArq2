@@ -3,6 +3,8 @@
 Los endpoints piden datos al repositorio; no escriben SQL ni conocen las consultas.
 """
 
+from datetime import UTC, datetime, timedelta
+
 from sqlalchemy import case, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, selectinload
@@ -10,9 +12,11 @@ from sqlalchemy.orm import Session, selectinload
 from app.infraestructura.modelos import (
     TIPOS_ENTRADA,
     ClaveIdempotencia,
+    EventoProcesado,
     Inventario,
     ItemPedido,
     MovimientoInventario,
+    Outbox,
     Pago,
     Pedido,
     Producto,
@@ -123,6 +127,31 @@ class RepositorioPedidos:
         self.sesion.flush()  # obtiene pedido.id sin cerrar la transacción
         return pedido
 
+    def buscar_para_actualizar(self, pedido_id: int) -> Pedido | None:
+        """FOR UPDATE: bloquea el pedido hasta el commit. Así el resultado del pago y el
+        vencimiento de la reserva no pueden cambiar el mismo pedido al mismo tiempo."""
+        return self.sesion.scalar(select(Pedido).where(Pedido.id == pedido_id).with_for_update())
+
+    def buscar_de_usuario(self, pedido_id: int, usuario_id: int) -> Pedido | None:
+        return self.sesion.scalar(
+            select(Pedido).where(Pedido.id == pedido_id, Pedido.usuario_id == usuario_id)
+        )
+
+    def reservas_vencidas(self, segundos: int) -> list[Pedido]:
+        """Pedidos que siguen esperando el pago después del TTL de la reserva.
+
+        SKIP LOCKED: si otro proceso tiene bloqueado un pedido (le está llegando el
+        resultado del pago), se salta y se revisa en la próxima pasada.
+        """
+        limite = datetime.now(UTC) - timedelta(seconds=segundos)
+        return list(
+            self.sesion.scalars(
+                select(Pedido)
+                .where(Pedido.estado == "stock_reservado", Pedido.creado_en < limite)
+                .with_for_update(skip_locked=True)
+            )
+        )
+
     def listar_de_usuario(self, usuario_id: int) -> list[Pedido]:
         consulta = (
             select(Pedido)
@@ -171,3 +200,31 @@ class RepositorioIdempotencia:
             .where(ClaveIdempotencia.usuario_id == usuario_id, ClaveIdempotencia.clave == clave)
             .values(codigo_respuesta=codigo, cuerpo_respuesta=cuerpo)
         )
+
+
+class RepositorioOutbox:
+    def __init__(self, sesion: Session):
+        self.sesion = sesion
+
+    def agregar(self, topico: str, clave: str, contenido: dict) -> None:
+        """Se guarda en la transacción en curso; el relay lo publica después del commit."""
+        self.sesion.add(Outbox(topico=topico, clave=clave, contenido=contenido))
+
+
+class RepositorioEventos:
+    def __init__(self, sesion: Session):
+        self.sesion = sesion
+
+    def registrar(self, id_evento: str) -> bool:
+        """True si el evento es nuevo. False si ya se había procesado (llegó repetido).
+
+        Va en la misma transacción que el efecto del evento: si algo falla, tampoco
+        queda marcado como procesado y se puede reintentar.
+        """
+        nuevo = self.sesion.scalar(
+            insert(EventoProcesado)
+            .values(id_evento=id_evento)
+            .on_conflict_do_nothing()
+            .returning(EventoProcesado.id_evento)
+        )
+        return nuevo is not None

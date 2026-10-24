@@ -11,6 +11,11 @@ export function comprar(productoId, cantidad, claveIdempotencia) {
   })
 }
 
+// Para seguir el pago: stock_reservado (en proceso), pagado o fallido.
+export function obtenerPedido(pedidoId) {
+  return pedir(`/pedidos/${pedidoId}`)
+}
+
 export function listarMisPedidos() {
   return pedir('/pedidos')
 }
