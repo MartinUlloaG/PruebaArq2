@@ -8,6 +8,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.infraestructura.base import Sesion
+from app.infraestructura import servicios_externos
 from app.infraestructura.seguridad import TokenInvalido, decodificar_token
 
 # auto_error=False: si falta el encabezado respondemos nosotros, con 401 y mensaje en español.
@@ -24,6 +25,15 @@ def obtener_sesion() -> Iterator[Session]:
     """Una sesión de BD por solicitud; se cierra sola al terminar."""
     with Sesion() as sesion:
         yield sesion
+
+
+def obtener_pasarela() -> servicios_externos.ClientePasarela:
+    """Las pruebas la reemplazan (dependency_overrides) por una pasarela controlada."""
+    return servicios_externos.pasarela
+
+
+def obtener_recomendaciones() -> servicios_externos.ClienteRecomendaciones:
+    return servicios_externos.recomendaciones
 
 
 def _no_autenticado(mensaje: str) -> HTTPException:

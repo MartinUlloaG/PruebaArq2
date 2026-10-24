@@ -60,7 +60,7 @@ export default function Catalogo() {
                     disabled={agotado || comprando !== null}
                     onClick={() => comprar(producto)}
                   >
-                    {enCurso ? 'Reservando…' : agotado ? 'Sin stock' : 'Comprar'}
+                    {enCurso ? 'Pagando…' : agotado ? 'Sin stock' : 'Comprar'}
                     <span className="solo-lector"> {producto.nombre}</span>
                   </button>
                 </li>

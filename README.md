@@ -2,13 +2,13 @@
 
 Módulo funcional del **Caso 3: e-commerce masivo de alta concurrencia con tolerancia a fallos**.
 Implementa un flujo vertical completo: ingreso con roles → catálogo → compra con reserva de stock
-sin sobreventa → pedido guardado en PostgreSQL → consulta de pedidos e inventario.
+sin sobreventa → pago en la pasarela (idempotente; si falla, el stock vuelve) → pedido guardado en PostgreSQL → consulta de pedidos e inventario.
 
 | Componente | Carpeta | Estado |
 |---|---|---|
 | Servicio de compras (FastAPI + PostgreSQL) | `servicioCompras/` | Implementado |
 | Interfaz (React + Vite + Zustand, MVVM) | `interfaz/` | Implementado |
-| Pasarela de pago simulada | `pasarelaSimulada/` | Pendiente (paso 2 de la Saga) |
+| Pasarela de pago simulada | `pasarelaSimulada/` | Implementado (paso 2 de la Saga) |
 | Servicio de recomendaciones | `servicioRecomendaciones/` | Pendiente (servicio secundario) |
 
 ## Requisitos
@@ -52,10 +52,23 @@ cd C:\comercio\servicioCompras
 .venv\Scripts\activate
 uvicorn app.principal:app --reload
 
-:: Consola 2: interfaz (abrir http://localhost:5173)
+:: Consola 2: pasarela de pago simulada (puerto 8001). Primera vez: crear su venv
+cd C:\comercio\pasarelaSimulada
+python -m venv .venv
+.venvScriptsctivate
+pip install -r dependencias.txt
+uvicorn pasarela:app --port 8001
+
+:: Consola 3: interfaz (abrir http://localhost:5173)
 cd C:\comercio\interfaz
 npm run dev
 ```
+
+La pasarela se puede poner en otro modo sin reiniciarla, desde http://127.0.0.1:8001/docs
+(`PUT /simulacion`): `aprueba`, `rechaza` (pago rechazado: el stock vuelve), `lenta` (tarda más
+que el tiempo límite de 2 s) o `falla` (503). Con 3 fallas seguidas el Circuit Breaker se abre y
+durante 10 s la compra responde al instante sin llamar a la pasarela. `GET /cobros` muestra los
+cobros hechos: la misma clave de idempotencia nunca genera dos.
 
 La interfaz reenvía `/api` al servicio de compras (ver `interfaz/vite.config.js`), así que no hace falta CORS.
 
@@ -82,8 +95,11 @@ python -m pytest
 
 Requieren la base de datos arriba y migrada. Destacan:
 
-- `pruebas/test_pedidos.py`: **stock 1 y 100 compras simultáneas, exactamente 1 éxito**; 409 sin
-  stock, 422 con cantidad inválida, 403 si compra alguien que no es cliente, 401 sin sesión.
+- `pruebas/test_pedidos.py`: **stock 1 y 100 compras simultáneas, exactamente 1 éxito**; **la misma
+  clave de idempotencia dos veces genera un solo cobro**; pago rechazado (402) o pasarela caída (503)
+  devuelven el stock; con la pasarela lenta el Circuit Breaker se abre; 409 sin stock, 422 con
+  cantidad inválida, 403 si compra alguien que no es cliente, 401 sin sesión.
+- `pruebas/test_circuit_breaker.py`: estados cerrado, abierto y semiabierto.
 - `pruebas/test_autenticacion.py`: un cliente recibe 403 en rutas de operador y administrador;
   mismo mensaje para correo inexistente y clave incorrecta.
 - `pruebas/test_esquema.py`: la base de datos rechaza stock, totales y montos negativos; el stock cuadra con los

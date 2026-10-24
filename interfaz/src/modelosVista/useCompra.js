@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { comprar as comprarEnApi } from '../servicios/pedidos'
 import { formatearPrecio } from './stock'
 
-// `alTerminar` recarga el catálogo: tras comprar (o tras un 409) el stock mostrado cambió.
+// `alTerminar` recarga el catálogo: tras comprar, o si el pago falló y el stock volvió.
 export function useCompra(alTerminar) {
   const [comprando, setComprando] = useState(null) // producto_id en curso
   const [resultado, setResultado] = useState(null) // { tipo: 'exito' | 'error', texto }
@@ -13,10 +13,11 @@ export function useCompra(alTerminar) {
     setComprando(producto.producto_id)
     setResultado(null)
     try {
-      const pedido = await comprarEnApi(producto.producto_id, 1)
+      // Una clave nueva por cada clic en Comprar (crypto.randomUUID existe en localhost y HTTPS).
+      const pedido = await comprarEnApi(producto.producto_id, 1, crypto.randomUUID())
       setResultado({
         tipo: 'exito',
-        texto: `Pedido #${pedido.pedido_id}: reservaste ${producto.nombre} por ${formatearPrecio(pedido.total)}.`,
+        texto: `Pedido #${pedido.pedido_id} pagado: compraste ${producto.nombre} por ${formatearPrecio(pedido.total)}.`,
       })
     } catch (error) {
       setResultado({ tipo: 'error', texto: error.message })

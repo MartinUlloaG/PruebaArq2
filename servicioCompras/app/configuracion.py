@@ -22,6 +22,13 @@ class Configuracion(BaseSettings):
     jwt_secreto: str
     jwt_minutos: int = 30
 
+    # Servicios satélite (procesos aparte). El tiempo límite es corto a propósito:
+    # una pasarela lenta no puede dejar colgadas las solicitudes del núcleo.
+    pasarela_url: str = "http://127.0.0.1:8001"
+    pasarela_segundos_limite: float = 2
+    recomendaciones_url: str = "http://127.0.0.1:8002"
+    recomendaciones_segundos_limite: float = 1
+
     @property
     def url_base_de_datos(self) -> str:
         return (
