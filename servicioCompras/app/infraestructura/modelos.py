@@ -138,3 +138,31 @@ class ClaveIdempotencia(Base):
     codigo_respuesta: Mapped[int | None]
     cuerpo_respuesta: Mapped[dict | None] = mapped_column(JSONB)
     creado_en: Mapped[datetime] = _creado_en()
+
+
+class Outbox(Base):
+    """Patrón Outbox: mensajes que se deben publicar en Kafka.
+
+    Se escriben en la MISMA transacción que el cambio que los origina (por ejemplo la
+    reserva del stock), así el cambio y su mensaje se guardan o se pierden juntos.
+    Un hilo aparte (el relay) los publica y marca publicado_en.
+    """
+
+    __tablename__ = "outbox"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    topico: Mapped[str] = mapped_column(String(100))
+    clave: Mapped[str] = mapped_column(String(100))  # Kafka la usa para elegir la partición
+    contenido: Mapped[dict] = mapped_column(JSONB)
+    creado_en: Mapped[datetime] = _creado_en()
+    publicado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class EventoProcesado(Base):
+    """Consumidor idempotente: Kafka entrega "al menos una vez", así que un mismo
+    evento puede llegar dos veces. Si su id ya está aquí, se descarta."""
+
+    __tablename__ = "eventos_procesados"
+
+    id_evento: Mapped[str] = mapped_column(String(100), primary_key=True)
+    procesado_en: Mapped[datetime] = _creado_en()

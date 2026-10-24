@@ -14,7 +14,7 @@ function textoDisponibles(cantidad) {
 
 export default function Catalogo() {
   const { datos, cargando, error, reintentar, recargar } = useRecurso(listarCatalogo)
-  const { comprando, resultado, comprar } = useCompra(recargar)
+  const { comprando, etapa, resultado, comprar } = useCompra(recargar)
 
   return (
     <section aria-labelledby="titulo-catalogo">
@@ -60,7 +60,7 @@ export default function Catalogo() {
                     disabled={agotado || comprando !== null}
                     onClick={() => comprar(producto)}
                   >
-                    {enCurso ? 'Pagando…' : agotado ? 'Sin stock' : 'Comprar'}
+                    {enCurso ? (etapa === 'pagando' ? 'Pagando…' : 'Reservando…') : agotado ? 'Sin stock' : 'Comprar'}
                     <span className="solo-lector"> {producto.nombre}</span>
                   </button>
                 </li>

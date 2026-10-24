@@ -22,10 +22,14 @@ class Configuracion(BaseSettings):
     jwt_secreto: str
     jwt_minutos: int = 30
 
-    # Servicios satélite (procesos aparte). El tiempo límite es corto a propósito:
-    # una pasarela lenta no puede dejar colgadas las solicitudes del núcleo.
-    pasarela_url: str = "http://127.0.0.1:8001"
-    pasarela_segundos_limite: float = 2
+    # Kafka: por aquí viajan los pasos de la Saga. kafka_activo=False apaga los
+    # hilos de mensajería (las pruebas que no necesitan broker lo apagan).
+    kafka_servidores: str = "127.0.0.1:9092"
+    kafka_activo: bool = True
+    # TTL de la reserva: si el pago no se resuelve en este tiempo, el stock vuelve.
+    segundos_reserva: int = 60
+
+    # Servicios satélite (procesos aparte). El tiempo límite es corto a propósito.
     recomendaciones_url: str = "http://127.0.0.1:8002"
     recomendaciones_segundos_limite: float = 1
 

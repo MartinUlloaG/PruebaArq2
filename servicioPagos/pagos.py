@@ -1,0 +1,151 @@
+"""Servicio de pagos: el participante de la Saga que cobra.
+
+Lee las solicitudes de pagos.solicitudes, cobra en la pasarela externa (REST, con
+tiempo límite y Circuit Breaker) y publica el resultado en pagos.resultados.
+
+- Si la pasarela no responde, se reintenta esperando 1, 2 y 4 segundos. Siempre con la
+  misma clave de idempotencia: si el primer intento sí alcanzó a cobrar, el reintento
+  recibe esa misma respuesta y no se cobra dos veces.
+- Si se agotan los intentos, la solicitud va a la DLQ (pagos.muertos) y no se publica
+  resultado: el servicio de compras devuelve el stock cuando vence la reserva.
+- No tiene base de datos propia: la idempotencia la dan las claves (la de la pasarela
+  y el id_evento del resultado, que el servicio de compras descarta si llega repetido).
+
+Uso (con Kafka y la pasarela arriba):  python pagos.py
+"""
+
+import json
+import logging
+import os
+import threading
+
+import httpx
+from confluent_kafka import Consumer, KafkaException, Producer
+from confluent_kafka.admin import AdminClient, NewTopic
+
+from circuit_breaker import CircuitBreaker, CircuitoAbierto
+
+KAFKA = {"bootstrap.servers": os.environ.get("KAFKA_SERVIDORES", "127.0.0.1:9092"), "log_level": 3}
+PASARELA_URL = os.environ.get("PASARELA_URL", "http://127.0.0.1:8001")
+SEGUNDOS_LIMITE = 2
+
+SOLICITUDES_PAGO = "pagos.solicitudes"
+RESULTADOS_PAGO = "pagos.resultados"
+MUERTOS = "pagos.muertos"
+
+registro = logging.getLogger("servicio-pagos")
+
+
+class PasarelaNoDisponible(Exception):
+    pass
+
+
+class ClientePasarela:
+    """Adapter: traduce la API HTTP de la pasarela a una llamada simple."""
+
+    def __init__(self, http: httpx.Client, circuito: CircuitBreaker):
+        self.http = http
+        self.circuito = circuito
+
+    def autorizar(self, pedido_id: int, monto: int, clave_idempotencia: str) -> dict:
+        def llamada() -> dict:
+            try:
+                respuesta = self.http.post(
+                    "/autorizaciones",
+                    json={"pedido_id": pedido_id, "monto": monto},
+                    headers={"Idempotency-Key": clave_idempotencia},
+                )
+                respuesta.raise_for_status()
+                return respuesta.json()
+            except (httpx.HTTPError, ValueError) as error:
+                # Solo esto cuenta como falla del Circuit Breaker: un pago rechazado
+                # es una respuesta válida de la pasarela, no una falla.
+                raise PasarelaNoDisponible(str(error)) from error
+
+        try:
+            return self.circuito.llamar(llamada)
+        except CircuitoAbierto as error:
+            raise PasarelaNoDisponible(str(error)) from error
+
+
+def procesar_solicitud(solicitud: dict, pasarela: ClientePasarela) -> dict:
+    """Cobra y arma el evento de resultado. Lanza PasarelaNoDisponible si no se pudo."""
+    respuesta = pasarela.autorizar(
+        solicitud["pedido_id"], solicitud["monto"], solicitud["clave_idempotencia"]
+    )
+    return {
+        # Un solo resultado posible por pedido: si se publica dos veces, el núcleo descarta el segundo.
+        "id_evento": f"resultado-pedido-{solicitud['pedido_id']}",
+        "pedido_id": solicitud["pedido_id"],
+        "autorizado": respuesta["autorizado"],
+        "referencia": respuesta.get("referencia"),
+        "motivo": respuesta.get("motivo"),
+    }
+
+
+def crear_topicos() -> None:
+    admin = AdminClient(KAFKA)
+    nuevos = [NewTopic(t, num_partitions=3, replication_factor=1) for t in (SOLICITUDES_PAGO, RESULTADOS_PAGO, MUERTOS)]
+    for futuro in admin.create_topics(nuevos).values():
+        try:
+            futuro.result()
+        except KafkaException as error:
+            if "TOPIC_ALREADY_EXISTS" not in str(error):
+                raise
+
+
+def atender(
+    pasarela: ClientePasarela,
+    detener: threading.Event,
+    grupo: str = "servicio-pagos",
+    intentos: int = 4,
+    espera_inicial: float = 1,
+) -> None:
+    """Bucle principal: solicitud -> cobro -> resultado, con reintentos y DLQ."""
+    consumidor = Consumer(
+        {**KAFKA, "group.id": grupo, "enable.auto.commit": False, "auto.offset.reset": "earliest"}
+    )
+    productor = Producer(KAFKA)
+    consumidor.subscribe([SOLICITUDES_PAGO])
+    try:
+        while not detener.is_set():
+            mensaje = consumidor.poll(0.5)
+            if mensaje is None:
+                continue
+            if mensaje.error():
+                registro.warning("Kafka: %s", mensaje.error())
+                continue
+            solicitud = json.loads(mensaje.value())
+            for intento in range(intentos):
+                try:
+                    resultado = procesar_solicitud(solicitud, pasarela)
+                    productor.produce(RESULTADOS_PAGO, key=mensaje.key(), value=json.dumps(resultado))
+                    productor.flush(10)
+                    registro.info("Pedido %s: autorizado=%s", solicitud["pedido_id"], resultado["autorizado"])
+                    break
+                except PasarelaNoDisponible as error:
+                    if intento == intentos - 1:
+                        registro.error("Pedido %s a la DLQ: %s", solicitud["pedido_id"], error)
+                        muerto = {"topico_origen": SOLICITUDES_PAGO, "error": str(error), "evento": solicitud}
+                        productor.produce(MUERTOS, key=mensaje.key(), value=json.dumps(muerto))
+                        productor.flush(10)
+                    else:
+                        detener.wait(espera_inicial * 2**intento)
+            consumidor.commit(mensaje, asynchronous=False)  # recién aquí se da por leído
+    finally:
+        consumidor.close()
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    crear_topicos()
+    pasarela = ClientePasarela(
+        httpx.Client(base_url=PASARELA_URL, timeout=SEGUNDOS_LIMITE),
+        CircuitBreaker("pasarela de pago", umbral_fallas=3, segundos_abierto=10),
+    )
+    detener = threading.Event()
+    registro.info("Servicio de pagos escuchando %s", SOLICITUDES_PAGO)
+    try:
+        atender(pasarela, detener)
+    except KeyboardInterrupt:
+        detener.set()

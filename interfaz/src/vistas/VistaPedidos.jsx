@@ -6,7 +6,7 @@ import EstadoCarga from './EstadoCarga'
 // Estados de la Saga: reservado (paso 1), pagado (confirmado) o fallido (stock devuelto).
 const ESTADOS = {
   pendiente: 'Pendiente',
-  stock_reservado: 'Reservado, pago pendiente',
+  stock_reservado: 'Pago en proceso',
   pagado: 'Pagado',
   fallido: 'Pago fallido, stock devuelto',
 }
