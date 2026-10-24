@@ -3,12 +3,12 @@ import { useRecurso } from '../modelosVista/useRecurso'
 import { listarMisPedidos } from '../servicios/pedidos'
 import EstadoCarga from './EstadoCarga'
 
-// Por ahora la compra llega hasta la reserva de stock; el pago es el siguiente paso de la Saga.
+// Estados de la Saga: reservado (paso 1), pagado (confirmado) o fallido (stock devuelto).
 const ESTADOS = {
   pendiente: 'Pendiente',
   stock_reservado: 'Reservado, pago pendiente',
   pagado: 'Pagado',
-  fallido: 'Fallido',
+  fallido: 'Pago fallido, stock devuelto',
 }
 
 const formatoFecha = new Intl.DateTimeFormat('es-CL', { dateStyle: 'short', timeStyle: 'short' })

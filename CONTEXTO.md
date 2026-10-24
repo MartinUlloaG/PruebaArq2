@@ -160,6 +160,12 @@ Estado al 23-oct-2026 (cierre de chat):
 
 
 
+Pieza 4 TERMINADA (24-oct-2026): Saga completa en app/dominio/compras.py (comprar: reservar y confirmar, autorizar en la pasarela, pagado o compensar con "liberacion" y pedido "fallido"). pasarelaSimulada/pasarela.py (puerto 8001, cobros en memoria, idempotente por Idempotency-Key, modos aprueba/rechaza/lenta/falla con PUT /simulacion, GET /cobros). POST /pedidos exige el encabezado Idempotency-Key (receptor idempotente sobre claves_idempotencia con INSERT ON CONFLICT DO NOTHING; misma clave y cuerpo = respuesta guardada; cuerpo distinto = 422; en curso = 409). Códigos: 402 pago rechazado, 503 pasarela caída o lenta. Clave hacia la pasarela: "pedido-<id>". El Circuit Breaker propio (app/infraestructura/circuit_breaker.py, 3 fallas, 10 s) ya protege a la pasarela; adaptadores en app/infraestructura/servicios_externos.py. Front manda crypto.randomUUID() por compra. Límite conocido: con la pasarela lenta, ella cobra después del tiempo límite y el pedido queda fallido (en producción se concilia). 46 pruebas pasando.
+
+Borrador SIN conectar ni commitear: servicioRecomendaciones/recomendaciones.py y app/api/recomendaciones.py (falta incluir el router en principal.py, la sección en la interfaz y pruebas). Siguiente: terminar recomendaciones (pieza 5, demo de apagar el servicio), actualizar el informe (tablas de estado, pruebas, patrones), diagramas y video.
+
+
+
 \## 10. Plan de trabajo (una pieza por vez, cada una cierra con una prueba que debe pasar)
 
 1\. Alembic: configurar, migración inicial desde los modelos, datos de prueba (productos, stock, usuarios por rol).

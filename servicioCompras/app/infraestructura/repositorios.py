@@ -4,13 +4,16 @@ Los endpoints piden datos al repositorio; no escriben SQL ni conocen las consult
 """
 
 from sqlalchemy import case, func, select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, selectinload
 
 from app.infraestructura.modelos import (
     TIPOS_ENTRADA,
+    ClaveIdempotencia,
     Inventario,
     ItemPedido,
     MovimientoInventario,
+    Pago,
     Pedido,
     Producto,
     Usuario,
@@ -64,6 +67,19 @@ class RepositorioInventario:
             )
         return restante
 
+    def liberar(self, producto_id: int, cantidad: int, pedido_id: int) -> None:
+        """Compensación de la Saga: devuelve al stock lo que se reservó, con su movimiento."""
+        self.sesion.execute(
+            update(Inventario)
+            .where(Inventario.producto_id == producto_id)
+            .values(cantidad=Inventario.cantidad + cantidad)
+        )
+        self.sesion.add(
+            MovimientoInventario(
+                producto_id=producto_id, pedido_id=pedido_id, tipo="liberacion", cantidad=cantidad
+            )
+        )
+
     def listar_con_producto(self, solo_activos: bool = False) -> list[tuple[Producto, Inventario]]:
         consulta = (
             select(Producto, Inventario)
@@ -115,3 +131,43 @@ class RepositorioPedidos:
             .order_by(Pedido.id.desc())
         )
         return list(self.sesion.scalars(consulta))
+
+
+class RepositorioPagos:
+    def __init__(self, sesion: Session):
+        self.sesion = sesion
+
+    def registrar(self, pedido_id: int, monto: int, estado: str, referencia: str | None) -> Pago:
+        """Guarda la respuesta de la pasarela. UNIQUE(pedido_id): un solo pago por pedido."""
+        pago = Pago(pedido_id=pedido_id, monto=monto, estado=estado, referencia_pasarela=referencia)
+        self.sesion.add(pago)
+        return pago
+
+
+class RepositorioIdempotencia:
+    def __init__(self, sesion: Session):
+        self.sesion = sesion
+
+    def tomar(self, usuario_id: int, clave: str, huella: str) -> ClaveIdempotencia | None:
+        """Intenta registrar la clave. Devuelve None si es nueva, o la fila que ya existía.
+
+        INSERT ... ON CONFLICT DO NOTHING es atómico: si dos solicitudes con la misma
+        clave llegan juntas, solo una la inserta. No es "consultar y luego insertar",
+        que tendría la misma condición de carrera que la sobreventa.
+        """
+        insertada = self.sesion.scalar(
+            insert(ClaveIdempotencia)
+            .values(usuario_id=usuario_id, clave=clave, huella=huella)
+            .on_conflict_do_nothing()
+            .returning(ClaveIdempotencia.clave)
+        )
+        if insertada is not None:
+            return None
+        return self.sesion.get(ClaveIdempotencia, (usuario_id, clave))
+
+    def guardar_respuesta(self, usuario_id: int, clave: str, codigo: int, cuerpo: dict) -> None:
+        self.sesion.execute(
+            update(ClaveIdempotencia)
+            .where(ClaveIdempotencia.usuario_id == usuario_id, ClaveIdempotencia.clave == clave)
+            .values(codigo_respuesta=codigo, cuerpo_respuesta=cuerpo)
+        )

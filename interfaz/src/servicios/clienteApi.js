@@ -30,8 +30,8 @@ function mensajeDeError(cuerpo, estado) {
   return `Error inesperado (código ${estado}).`
 }
 
-export async function pedir(ruta, { metodo = 'GET', cuerpo } = {}) {
-  const encabezados = { Accept: 'application/json' }
+export async function pedir(ruta, { metodo = 'GET', cuerpo, encabezadosExtra = {} } = {}) {
+  const encabezados = { Accept: 'application/json', ...encabezadosExtra }
   if (cuerpo !== undefined) encabezados['Content-Type'] = 'application/json'
   const token = obtenerToken()
   if (token) encabezados.Authorization = `Bearer ${token}`
