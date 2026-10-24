@@ -1,18 +1,15 @@
-"""Pasarela de pago simulada: hace de servicio externo (como Webpay o Mercado Pago).
-
-Corre en su propio proceso y no comparte nada con el servicio de compras.
-Guarda los cobros en memoria: al reiniciarla se pierden, y está bien para una demo.
-
-Idempotencia: cada autorización trae una clave (encabezado Idempotency-Key). Si la
-misma clave llega dos veces, se devuelve la respuesta guardada y NO se cobra de nuevo.
-
-Modos de simulación (se cambian en caliente con PUT /simulacion, o al arrancar con
-la variable de entorno PASARELA_MODO):
-  aprueba  -> autoriza todos los pagos
-  rechaza  -> rechaza todos los pagos (como una tarjeta sin fondos)
-  lenta    -> tarda más que el tiempo límite del servicio de compras y después autoriza
-  falla    -> responde 503 sin cobrar (pasarela caída)
-"""
+# Pasarela de pago simulada (hace como si fuera Webpay o Mercado Pago).
+# Corre aparte del servicio de compras, en el puerto 8001.
+# Los cobros se guardan en memoria, si se reinicia se borran.
+#
+# Cada pago trae una clave (Idempotency-Key). Si llega la misma clave otra vez
+# se devuelve lo mismo que la primera vez y no se cobra de nuevo.
+#
+# Modos (se cambian con PUT /simulacion):
+#   aprueba -> aprueba todo
+#   rechaza -> rechaza todo, como tarjeta sin fondos
+#   lenta   -> se demora 5 segundos y después aprueba
+#   falla   -> da error 503, como si estuviera caída
 
 import os
 import threading
@@ -20,82 +17,71 @@ import time
 import uuid
 from typing import Literal
 
-from fastapi import FastAPI, Header, HTTPException, status
-from pydantic import BaseModel, Field
+from fastapi import FastAPI, Header, HTTPException
+from pydantic import BaseModel
 
-Modo = Literal["aprueba", "rechaza", "lenta", "falla"]
-SEGUNDOS_MODO_LENTO = 5
+app = FastAPI(title="Pasarela simulada")
 
-app = FastAPI(title="Pasarela de pago simulada")
+candado = threading.Lock()  # para que dos pagos al mismo tiempo no se pisen
 
-_candado = threading.Lock()  # los endpoints síncronos corren en varios hilos a la vez
-_estado: dict = {"modo": os.environ.get("PASARELA_MODO", "aprueba")}
-_respuestas: dict[str, dict] = {}  # clave de idempotencia -> respuesta ya entregada
-_cobros: list[dict] = []  # solo los autorizados: es lo que se le cobró al cliente
+_estado = {"modo": os.environ.get("PASARELA_MODO", "aprueba")}
+_respuestas = {}  # clave -> respuesta que ya se dio
+_cobros = []  # pagos aprobados
 
 
-class SolicitudAutorizacion(BaseModel):
+class Pago(BaseModel):
     pedido_id: int
-    monto: int = Field(ge=0)
+    monto: int
 
 
-class Autorizacion(BaseModel):
-    autorizado: bool
-    referencia: str | None
-    motivo: str | None
+class Modo(BaseModel):
+    modo: Literal["aprueba", "rechaza", "lenta", "falla"]
 
 
-class Simulacion(BaseModel):
-    modo: Modo
-
-
-@app.post("/autorizaciones", response_model=Autorizacion)
-def autorizar(
-    solicitud: SolicitudAutorizacion,
-    clave: str = Header(alias="Idempotency-Key", min_length=1, max_length=100),
-):
-    with _candado:
+@app.post("/autorizaciones", summary="Pagar")
+def pagar(pago: Pago, clave: str = Header(alias="Idempotency-Key")):
+    # si la clave ya llegó antes, se devuelve lo mismo
+    with candado:
         if clave in _respuestas:
-            return _respuestas[clave]  # reintento: misma respuesta, sin cobrar otra vez
-        modo = _estado["modo"]
+            return _respuestas[clave]
 
+    modo = _estado["modo"]
     if modo == "falla":
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Pasarela no disponible.")
+        raise HTTPException(503, "Pasarela caída")
     if modo == "lenta":
-        time.sleep(SEGUNDOS_MODO_LENTO)
+        time.sleep(5)
 
     if modo == "rechaza":
         respuesta = {"autorizado": False, "referencia": None, "motivo": "Fondos insuficientes."}
     else:
-        respuesta = {"autorizado": True, "referencia": f"AUT-{uuid.uuid4().hex[:10]}", "motivo": None}
+        respuesta = {"autorizado": True, "referencia": "AUT-" + uuid.uuid4().hex[:10], "motivo": None}
 
-    with _candado:
-        if clave in _respuestas:  # otra solicitud con la misma clave ganó mientras tanto
+    with candado:
+        # puede que otro pago con la misma clave haya terminado mientras esperaba
+        if clave in _respuestas:
             return _respuestas[clave]
         _respuestas[clave] = respuesta
         if respuesta["autorizado"]:
-            _cobros.append({"clave": clave, "referencia": respuesta["referencia"], **solicitud.model_dump()})
+            _cobros.append({"clave": clave, "pedido_id": pago.pedido_id, "monto": pago.monto})
     return respuesta
 
 
-@app.get("/cobros")
-def listar_cobros():
-    """Para la demo: muestra que una misma clave genera un solo cobro."""
-    with _candado:
-        return {"total": len(_cobros), "cobros": list(_cobros)}
+@app.get("/cobros", summary="Ver cobros")
+def ver_cobros():
+    return {"total": len(_cobros), "cobros": _cobros}
 
 
-@app.get("/simulacion", response_model=Simulacion)
-def ver_simulacion():
+@app.get("/simulacion", summary="Ver modo")
+def ver_modo():
     return _estado
 
 
-@app.put("/simulacion", response_model=Simulacion)
-def cambiar_simulacion(simulacion: Simulacion):
-    _estado["modo"] = simulacion.modo
+@app.put("/simulacion", summary="Cambiar modo")
+def cambiar_modo(nuevo: Modo):
+    _estado["modo"] = nuevo.modo
     return _estado
 
 
-@app.get("/salud")
+@app.get("/salud", summary="Ver si está prendida")
 def salud():
     return {"estado": "ok"}
