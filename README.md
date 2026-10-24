@@ -55,7 +55,7 @@ uvicorn app.principal:app --reload
 :: Consola 2: pasarela de pago simulada (puerto 8001). Primera vez: crear su venv
 cd C:\comercio\pasarelaSimulada
 python -m venv .venv
-.venvScriptsctivate
+.venv\Scripts\activate
 pip install -r dependencias.txt
 uvicorn pasarela:app --port 8001
 
