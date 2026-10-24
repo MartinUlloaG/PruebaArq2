@@ -46,17 +46,19 @@ La semilla es idempotente: se puede correr varias veces sin duplicar usuarios ni
 
 ## Ejecutar
 
+> **Una consola por servicio.** `uvicorn` y `npm run dev` se quedan corriendo y ocupan la consola:
+> si se pegan todos los comandos en la misma, los siguientes no corren hasta que el anterior se
+> detiene. Antes de empezar: Docker Desktop abierto y `docker compose up -d` en `C:\comercio`.
+
 ```bat
 :: Consola 1: servicio de compras (API en http://127.0.0.1:8000, documentación en /docs)
 cd C:\comercio\servicioCompras
 .venv\Scripts\activate
 uvicorn app.principal:app --reload
 
-:: Consola 2: pasarela de pago simulada (puerto 8001). Primera vez: crear su venv
+:: Consola 2: pasarela de pago simulada (puerto 8001). Usa el mismo venv: ya tiene FastAPI
 cd C:\comercio\pasarelaSimulada
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r dependencias.txt
+..\servicioCompras\.venv\Scripts\activate
 uvicorn pasarela:app --port 8001
 
 :: Consola 3: interfaz (abrir http://localhost:5173)
