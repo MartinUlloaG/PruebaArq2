@@ -42,7 +42,7 @@ USUARIOS_DEMO = [
     ("operador@demo.cl", "Operador-Demo-2026", "operador"),
     ("admin@demo.cl", "Admin-Demo-2026", "administrador"),
 ]
-CLIENTES_EXTRA = 20  # cliente01@demo.cl ... con la misma clave que cliente@demo.cl
+CLIENTES_EXTRA = 99  # cliente01..cliente99@demo.cl, misma clave que cliente@demo.cl (100 clientes en total)
 PEDIDOS_HISTORICOS = 60
 
 # Atributos por categoría: cada una tiene los suyos (por eso el catálogo va en Mongo).
@@ -153,6 +153,7 @@ def _crear_pedidos_historicos(sesion: Session) -> int:
         pedido.creado_en = ahora - timedelta(days=azar.randint(1, 30), minutes=azar.randint(0, 1440))
         if azar.random() < 0.85:
             pedido.estado = "pagado"
+            compras.avisar_pagado(sesion, pedido)
             sesion.add(Pago(pedido_id=pedido.id, monto=pedido.total, estado="autorizado", referencia_pasarela=f"AUT-SEMILLA-{pedido.id}"))
         else:
             sesion.add(Pago(pedido_id=pedido.id, monto=pedido.total, estado="rechazado"))

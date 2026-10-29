@@ -29,7 +29,9 @@ RESULTADOS_PAGO = "pagos.resultados"  # servicio de pagos -> núcleo
 MUERTOS = "pagos.muertos"  # Dead Letter Queue: se revisa a mano
 # Aparte de los pagos (otra criticidad): cada cambio de stock, para proyectarlo en Mongo.
 CAMBIOS_STOCK = "catalogo.stock"
-TOPICOS = (SOLICITUDES_PAGO, RESULTADOS_PAGO, MUERTOS, CAMBIOS_STOCK)
+# Pedido pagado: lo escucha el servicio de recomendaciones para saber qué se vende.
+PEDIDOS_PAGADOS = "pedidos.pagados"
+TOPICOS = (SOLICITUDES_PAGO, RESULTADOS_PAGO, MUERTOS, CAMBIOS_STOCK, PEDIDOS_PAGADOS)
 
 # log_level 3 = solo errores: librdkafka anota cada reconexión mientras el broker parte.
 BASE = {"bootstrap.servers": configuracion.kafka_servidores, "log_level": 3}

@@ -34,7 +34,7 @@ class Configuracion(BaseSettings):
     mongo_db: str = "tienda"
 
     # Servicios satélite (procesos aparte). El tiempo límite es corto a propósito.
-    recomendaciones_url: str = "http://127.0.0.1:8002"
+    recomendaciones_grpc: str = "127.0.0.1:50051"
     recomendaciones_segundos_limite: float = 1
 
     @property

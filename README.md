@@ -1,12 +1,14 @@
 # Tienda Arquitectura de Software - Eva 2
 
-Son 4 partes:
+Son 5 partes:
 - servicioCompras: el backend (FastAPI + PostgreSQL + MongoDB)
 - servicioPagos: lee los pagos desde Kafka y cobra en la pasarela
 - pasarelaSimulada: la pasarela de pago, corre aparte en el puerto 8001
+- servicioRecomendaciones: los más vendidos, por gRPC (puerto 50051). Es el servicio secundario: si se cae la compra sigue
 - interfaz: el front (React + Vite + Zustand)
 
-servicioRecomendaciones todavía no está terminado.
+Cómo se hablan: front -> backend por REST, backend -> recomendaciones por gRPC (contrato en protos/),
+backend <-> servicio de pagos por Kafka, servicio de pagos -> pasarela por REST (es externa).
 
 Postgres guarda el stock, los pedidos y los pagos. Mongo guarda el catálogo que ve el cliente
 (categoría, tallas, colores, material). Cada cambio de stock pasa por Kafka y se copia a Mongo.
@@ -88,7 +90,15 @@ cd C:\comercio\servicioPagos
 python pagos.py
 ```
 
-Consola 4 - front (abrir http://localhost:5173):
+Consola 4 - recomendaciones por gRPC (también usa el venv del backend):
+
+```bat
+cd C:\comercio\servicioRecomendaciones
+..\servicioCompras\.venv\Scripts\activate
+python recomendaciones.py
+```
+
+Consola 5 - front (abrir http://localhost:5173):
 
 ```bat
 cd C:\comercio\interfaz
@@ -159,3 +169,19 @@ interfaz/src/servicios               las llamadas a la API
 ## Seguridad
 
 - El token de sesión dura 30 minutos.
+
+## Atajos
+
+- Levantar tienda.bat: abre todas las consolas de arriba.
+- Simulación de 100 usuarios.bat: 100 clientes compran el mismo producto al mismo tiempo y muestra
+  que se vende exactamente lo que hay y que el sistema no se cae
+  (`python -m demostraciones.simulacion_100_usuarios`).
+
+Si se cambia protos/recomendaciones.proto hay que regenerar el código de gRPC:
+
+```bat
+cd C:\comercio\servicioCompras
+python -m grpc_tools.protoc -Iapp/contratos=../protos --python_out=. --grpc_python_out=. app/contratos/recomendaciones.proto
+cd C:\comercio\servicioRecomendaciones
+python -m grpc_tools.protoc -I../protos --python_out=. --grpc_python_out=. ../protos/recomendaciones.proto
+```

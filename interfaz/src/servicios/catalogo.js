@@ -9,3 +9,9 @@ export function listarCatalogo() {
 export function listarCategorias() {
   return pedir('/catalogo/categorias')
 }
+
+// Más vendidos, desde el servicio de recomendaciones (gRPC detrás del núcleo).
+// Si ese servicio está caído responde igual 200, con disponible=false.
+export function listarRecomendaciones() {
+  return pedir('/recomendaciones')
+}

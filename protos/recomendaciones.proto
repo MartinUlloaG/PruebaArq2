@@ -1,0 +1,18 @@
+// Contrato gRPC entre el servicio de compras (cliente) y el de recomendaciones (servidor).
+// Es la única fuente de verdad del formato: los dos lados generan su código desde aquí.
+syntax = "proto3";
+
+package recomendaciones;
+
+service Recomendaciones {
+  // Los productos más vendidos, de mayor a menor.
+  rpc Destacados (SolicitudDestacados) returns (ListaDestacados);
+}
+
+message SolicitudDestacados {
+  int32 limite = 1;
+}
+
+message ListaDestacados {
+  repeated int32 producto_ids = 1;
+}

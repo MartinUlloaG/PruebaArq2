@@ -15,6 +15,8 @@ No hay transacción distribuida: cada paso confirma su propia transacción local
 estado de la Saga queda en pedidos.estado.
 """
 
+import uuid
+
 from sqlalchemy.orm import Session
 
 from app.infraestructura import mensajeria
@@ -117,9 +119,24 @@ def aplicar_resultado_pago(sesion: Session, evento: dict) -> None:
     )
     if evento["autorizado"]:
         pedido.estado = "pagado"
+        avisar_pagado(sesion, pedido)
     else:
         _compensar(sesion, pedido)
     sesion.commit()
+
+
+def avisar_pagado(sesion: Session, pedido: Pedido) -> None:
+    """Evento pedidos.pagados (por el outbox): lo consume el servicio de recomendaciones."""
+    RepositorioOutbox(sesion).agregar(
+        mensajeria.PEDIDOS_PAGADOS,
+        clave=str(pedido.id),
+        contenido={
+            # Único por evento: si el relay lo publica dos veces, el consumidor lo reconoce.
+            "id_evento": f"pagado-{uuid.uuid4().hex}",
+            "pedido_id": pedido.id,
+            "items": [{"producto_id": i.producto_id, "cantidad": i.cantidad} for i in pedido.items],
+        },
+    )
 
 
 def expirar_reservas(sesion: Session, segundos: int) -> int:

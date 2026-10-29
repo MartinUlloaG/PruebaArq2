@@ -12,6 +12,7 @@ import { formatearPrecio, POCO_STOCK } from '../modelosVista/stock'
 import { useRecurso } from '../modelosVista/useRecurso'
 import { listarCatalogo, listarCategorias } from '../servicios/catalogo'
 import EstadoCarga from './EstadoCarga'
+import Recomendaciones from './Recomendaciones'
 import VistaCarrito from './VistaCarrito'
 
 // Atributos del documento de Mongo que se muestran en la tarjeta (cambian según la prenda).
@@ -279,6 +280,7 @@ export default function Catalogo() {
 
           {/* Grilla de productos */}
           <main className="min-w-0">
+            <Recomendaciones />
             <EstadoCarga cargando={cargando && productos.length === 0} error={error} reintentar={reintentar}>
               {productosFiltrados.length === 0 ? (
                 <div className="border border-dashed border-[#293241]/20 p-16 text-center bg-gray-50/50">
