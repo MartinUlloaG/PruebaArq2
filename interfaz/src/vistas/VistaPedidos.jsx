@@ -107,6 +107,7 @@ export default function VistaPedidos() {
       const codigoRandom = `#KYRO-${Math.floor(100000 + Math.random() * 900000)}`
       setNumeroOrdenConfirmada(codigoRandom)
       setEstadoCheckout('confirmado')
+      limpiarCarrito()
     }, 2000)
   }
 
@@ -519,7 +520,7 @@ export default function VistaPedidos() {
           </section>
 
           {/* COLUMNA DERECHA (30%): Resumen del Pedido (Sticky, useCarrito) */}
-          <aside className="sticky top-28 bg-[#f4fbfb] border border-[#293241]/15 p-6 md:p-8 space-y-6">
+          <aside className="sticky top-28 z-10 self-start bg-[#f4fbfb] border border-[#293241]/15 p-6 md:p-8 space-y-6">
             <div className="flex justify-between items-baseline border-b border-[#293241]/10 pb-4">
               <h2 className="text-xs uppercase tracking-[0.25em] font-black text-[#293241]">
                 Resumen del Pedido

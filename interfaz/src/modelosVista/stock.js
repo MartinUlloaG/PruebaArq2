@@ -15,4 +15,7 @@ const formatoCLP = new Intl.NumberFormat('es-CL', {
   maximumFractionDigits: 0,
 })
 
-export const formatearPrecio = (pesos) => formatoCLP.format(pesos)
+export const formatearPrecio = (pesos) => {
+  const numero = Number(pesos)
+  return formatoCLP.format(Number.isFinite(numero) ? numero : 0)
+}

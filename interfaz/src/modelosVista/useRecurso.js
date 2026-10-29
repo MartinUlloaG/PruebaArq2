@@ -26,5 +26,13 @@ export function useRecurso(cargar) {
     setIntento((n) => n + 1)
   }
 
-  return { ...estado, reintentar, recargar }
+  // Actualización reactiva/optimista inmediata del estado local
+  function mutar(transformar) {
+    setEstado((anterior) => ({
+      ...anterior,
+      datos: typeof transformar === 'function' ? transformar(anterior.datos) : transformar,
+    }))
+  }
+
+  return { ...estado, reintentar, recargar, mutar }
 }

@@ -34,6 +34,9 @@ class RepositorioUsuarios:
     def listar(self) -> list[Usuario]:
         return list(self.sesion.scalars(select(Usuario).order_by(Usuario.id)))
 
+    def total_usuarios(self) -> int:
+        return self.sesion.scalar(select(func.count()).select_from(Usuario)) or 0
+
 
 class RepositorioProductos:
     def __init__(self, sesion: Session):
@@ -44,19 +47,16 @@ class RepositorioProductos:
             select(Producto).where(Producto.id == producto_id, Producto.activo)
         )
 
+    def total_productos(self) -> int:
+        return self.sesion.scalar(select(func.count()).select_from(Producto).where(Producto.activo)) or 0
+
 
 class RepositorioInventario:
     def __init__(self, sesion: Session):
         self.sesion = sesion
 
     def reservar(self, producto_id: int, cantidad: int, pedido_id: int) -> int | None:
-        """Descuenta stock solo si alcanza, y deja el movimiento "reserva" en la auditoría.
-
-        UPDATE condicional: la condición (cantidad >= n) se evalúa en la misma instrucción
-        que escribe. Si dos compras llegan juntas, Postgres bloquea la fila; la segunda
-        espera y vuelve a evaluar la condición con el stock ya descontado.
-        Devuelve el stock que queda, o None si no alcanzaba (no se tocó nada).
-        """
+        """Descuenta stock solo si alcanza, y deja el movimiento "reserva" en la auditoría."""
         restante = self.sesion.scalar(
             update(Inventario)
             .where(Inventario.producto_id == producto_id, Inventario.cantidad >= cantidad)
@@ -94,11 +94,41 @@ class RepositorioInventario:
             consulta = consulta.where(Producto.activo)
         return [(producto, inventario) for producto, inventario in self.sesion.execute(consulta)]
 
-    def saldo_movimientos(self, producto_id: int) -> int:
-        """Auditoría: reconstruye el stock solo desde los movimientos (entradas - salidas).
+    def ajustar_stock(self, producto_id: int, cantidad: int, tipo: str = "ajuste_entrada") -> int:
+        """Registra un ajuste o recepción de inventario manteniendo la auditoría (entradas - salidas)."""
+        if tipo == "ajuste_salida":
+            restante = self.sesion.scalar(
+                update(Inventario)
+                .where(Inventario.producto_id == producto_id, Inventario.cantidad >= cantidad)
+                .values(cantidad=Inventario.cantidad - cantidad)
+                .returning(Inventario.cantidad)
+            )
+            if restante is None:
+                raise ValueError("Stock insuficiente para realizar el ajuste de salida.")
+        else:
+            restante = self.sesion.scalar(
+                update(Inventario)
+                .where(Inventario.producto_id == producto_id)
+                .values(cantidad=Inventario.cantidad + cantidad)
+                .returning(Inventario.cantidad)
+            )
+            if restante is None:
+                inv = Inventario(producto_id=producto_id, cantidad=cantidad)
+                self.sesion.add(inv)
+                self.sesion.flush()
+                restante = cantidad
+        self.sesion.add(
+            MovimientoInventario(producto_id=producto_id, tipo=tipo, cantidad=cantidad)
+        )
+        return restante
 
-        Si no coincide con inventario.cantidad, algo cambió el stock sin dejar registro.
-        """
+    def total_stock_critico(self, umbral: int = 5) -> int:
+        return self.sesion.scalar(
+            select(func.count()).select_from(Inventario).where(Inventario.cantidad <= umbral)
+        ) or 0
+
+    def saldo_movimientos(self, producto_id: int) -> int:
+        """Auditoría: reconstruye el stock solo desde los movimientos (entradas - salidas)."""
         signo = case((MovimientoInventario.tipo.in_(TIPOS_ENTRADA), 1), else_=-1)
         return self.sesion.scalar(
             select(func.coalesce(func.sum(signo * MovimientoInventario.cantidad), 0)).where(
@@ -112,7 +142,6 @@ class RepositorioPedidos:
         self.sesion = sesion
 
     def crear(self, usuario_id: int, producto: Producto, cantidad: int, estado: str) -> Pedido:
-        """El precio se copia al ítem: si el producto cambia de precio, el pedido no cambia."""
         pedido = Pedido(
             usuario_id=usuario_id,
             estado=estado,
@@ -124,12 +153,10 @@ class RepositorioPedidos:
             ],
         )
         self.sesion.add(pedido)
-        self.sesion.flush()  # obtiene pedido.id sin cerrar la transacción
+        self.sesion.flush()
         return pedido
 
     def buscar_para_actualizar(self, pedido_id: int) -> Pedido | None:
-        """FOR UPDATE: bloquea el pedido hasta el commit. Así el resultado del pago y el
-        vencimiento de la reserva no pueden cambiar el mismo pedido al mismo tiempo."""
         return self.sesion.scalar(select(Pedido).where(Pedido.id == pedido_id).with_for_update())
 
     def buscar_de_usuario(self, pedido_id: int, usuario_id: int) -> Pedido | None:
@@ -138,11 +165,6 @@ class RepositorioPedidos:
         )
 
     def reservas_vencidas(self, segundos: int) -> list[Pedido]:
-        """Pedidos que siguen esperando el pago después del TTL de la reserva.
-
-        SKIP LOCKED: si otro proceso tiene bloqueado un pedido (le está llegando el
-        resultado del pago), se salta y se revisa en la próxima pasada.
-        """
         limite = datetime.now(UTC) - timedelta(seconds=segundos)
         return list(
             self.sesion.scalars(
@@ -161,13 +183,22 @@ class RepositorioPedidos:
         )
         return list(self.sesion.scalars(consulta))
 
+    def total_pedidos(self) -> int:
+        return self.sesion.scalar(select(func.count()).select_from(Pedido)) or 0
+
+    def total_ingresos(self) -> int:
+        return self.sesion.scalar(
+            select(func.coalesce(func.sum(Pedido.total), 0)).where(
+                Pedido.estado.in_(["pagado", "stock_reservado"])
+            )
+        ) or 0
+
 
 class RepositorioPagos:
     def __init__(self, sesion: Session):
         self.sesion = sesion
 
     def registrar(self, pedido_id: int, monto: int, estado: str, referencia: str | None) -> Pago:
-        """Guarda la respuesta de la pasarela. UNIQUE(pedido_id): un solo pago por pedido."""
         pago = Pago(pedido_id=pedido_id, monto=monto, estado=estado, referencia_pasarela=referencia)
         self.sesion.add(pago)
         return pago
@@ -178,12 +209,6 @@ class RepositorioIdempotencia:
         self.sesion = sesion
 
     def tomar(self, usuario_id: int, clave: str, huella: str) -> ClaveIdempotencia | None:
-        """Intenta registrar la clave. Devuelve None si es nueva, o la fila que ya existía.
-
-        INSERT ... ON CONFLICT DO NOTHING es atómico: si dos solicitudes con la misma
-        clave llegan juntas, solo una la inserta. No es "consultar y luego insertar",
-        que tendría la misma condición de carrera que la sobreventa.
-        """
         insertada = self.sesion.scalar(
             insert(ClaveIdempotencia)
             .values(usuario_id=usuario_id, clave=clave, huella=huella)
@@ -207,7 +232,6 @@ class RepositorioOutbox:
         self.sesion = sesion
 
     def agregar(self, topico: str, clave: str, contenido: dict) -> None:
-        """Se guarda en la transacción en curso; el relay lo publica después del commit."""
         self.sesion.add(Outbox(topico=topico, clave=clave, contenido=contenido))
 
 
@@ -216,11 +240,6 @@ class RepositorioEventos:
         self.sesion = sesion
 
     def registrar(self, id_evento: str) -> bool:
-        """True si el evento es nuevo. False si ya se había procesado (llegó repetido).
-
-        Va en la misma transacción que el efecto del evento: si algo falla, tampoco
-        queda marcado como procesado y se puede reintentar.
-        """
         nuevo = self.sesion.scalar(
             insert(EventoProcesado)
             .values(id_evento=id_evento)

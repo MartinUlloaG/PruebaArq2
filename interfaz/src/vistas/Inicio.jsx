@@ -127,7 +127,7 @@ export default function Inicio() {
                 onClick={() => irACategoria(cat.nombre)}
                 className={`group relative overflow-hidden bg-[#e0fbfc]/20 cursor-pointer ${
                   esPrincipal
-                    ? 'md:col-span-2 md:row-span-2 aspect-[4/5]'
+                    ? 'md:col-span-2 md:row-span-2 aspect-[4/5] md:aspect-auto'
                     : 'md:col-span-1 md:row-span-1 aspect-[3/4]'
                 }`}
               >

@@ -34,7 +34,23 @@ export const SECCIONES = [
   },
 ]
 
-export const seccionesPara = (rol) => SECCIONES.filter((s) => s.roles.includes(rol))
+export const seccionesPara = (rol) => (rol ? SECCIONES.filter((s) => s.roles.includes(rol)) : [])
+
+/**
+ * Devuelve la ruta de entrada oficial correspondiente al rol del usuario.
+ * Evita redirecciones cruzadas indebidas (ej: operador entrando a /catalogo).
+ */
+export function obtenerRutaPrincipalRol(rol) {
+  switch (rol) {
+    case 'operador':
+      return '/inventario'
+    case 'administrador':
+      return '/usuarios'
+    case 'cliente':
+    default:
+      return '/catalogo'
+  }
+}
 
 // SOLO DEMO: las mismas cuentas que crea la semilla del backend.
 // La vista de ingreso las muestra únicamente en modo desarrollo.

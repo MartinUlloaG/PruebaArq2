@@ -3,14 +3,13 @@ import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import {
   AlertCircle,
   ArrowRight,
-  Check,
   Eye,
   EyeOff,
   Lock,
   Mail,
   ShieldCheck,
 } from 'lucide-react'
-import { CUENTAS_DEMO, ROLES } from '../modelosVista/roles'
+import { CUENTAS_DEMO, ROLES, obtenerRutaPrincipalRol, seccionesPara } from '../modelosVista/roles'
 import { sesionVigente, useSesion } from '../modelosVista/useSesion'
 
 function validar(correo, clave) {
@@ -33,6 +32,7 @@ export default function VistaIngreso() {
   const error = useSesion((s) => s.error)
   const aviso = useSesion((s) => s.aviso)
   const vigente = useSesion(sesionVigente)
+  const usuario = useSesion((s) => s.usuario)
 
   const navegar = useNavigate()
   const ubicacion = useLocation()
@@ -46,7 +46,10 @@ export default function VistaIngreso() {
   const refClave = useRef(null)
   const refBoton = useRef(null)
 
-  if (vigente) return <Navigate to="/" replace />
+  // Si ya hay sesión vigente, redirige según el rol actual
+  if (vigente && usuario?.rol) {
+    return <Navigate to={obtenerRutaPrincipalRol(usuario.rol)} replace />
+  }
 
   async function enviar(evento) {
     evento.preventDefault()
@@ -56,8 +59,18 @@ export default function VistaIngreso() {
     if (errores.correo) return refCorreo.current?.focus()
     if (errores.clave) return refClave.current?.focus()
 
-    const ok = await ingresar(correo, clave)
-    if (ok) navegar(ubicacion.state?.desde ?? '/', { replace: true })
+    const res = await ingresar(correo, clave)
+    if (res) {
+      const nuevoRol = res.rol || res.usuario?.rol || useSesion.getState().usuario?.rol
+      const rutaPorRol = obtenerRutaPrincipalRol(nuevoRol)
+
+      // Validación estricta de redirección: solo respeta 'desde' si el nuevo rol tiene permiso
+      const desde = ubicacion.state?.desde
+      const permitidas = seccionesPara(nuevoRol).map((s) => s.ruta)
+      const esRutaValida = desde && (desde === '/' || permitidas.includes(desde))
+
+      navegar(esRutaValida ? desde : rutaPorRol, { replace: true })
+    }
   }
 
   function usarCuentaDemo(cuenta) {
@@ -70,14 +83,14 @@ export default function VistaIngreso() {
 
   return (
     <div className="min-h-screen w-full grid grid-cols-1 lg:grid-cols-2 bg-white text-[#1e1e1e]">
-      {/* 1. Mitad Izquierda: Split-Screen Editorial (Campaña Unsplash de Moda) */}
+      {/* 1. Mitad Izquierda: Split-Screen Editorial (Prenda Minimalista Studio, sin rostros) */}
       <section className="relative hidden lg:block h-full bg-[#293241] overflow-hidden select-none">
         <img
-          src="https://images.unsplash.com/photo-1490481651871-ab68de25d43d?auto=format&fit=crop&w=1400&q=85"
+          src="https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=1400&q=85"
           alt="KYRO Campaña Editorial 2026"
           className="absolute inset-0 w-full h-full object-cover object-center opacity-85 filter contrast-[1.05]"
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#293241] via-black/30 to-black/20" />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#293241] via-black/40 to-black/20" />
 
         <div className="absolute inset-0 p-16 flex flex-col justify-between z-10 text-white">
           <div className="flex items-center gap-2">
@@ -95,7 +108,7 @@ export default function VistaIngreso() {
               El Arte de la Confección Silenciosa
             </h2>
             <p className="text-xs uppercase tracking-[0.2em] text-[#e0fbfc]/80 font-light leading-relaxed">
-              Inicia sesión para gestionar tus pedidos, acceder al inventario y reservar piezas de tiraje limitado.
+              Inicia sesión para gestionar pedidos, auditar inventario o coordinar el catálogo con control de roles.
             </p>
           </div>
 
@@ -106,9 +119,9 @@ export default function VistaIngreso() {
         </div>
       </section>
 
-      {/* 2. Mitad Derecha: Formulario Centrado con Espacios Generosos */}
+      {/* 2. Mitad Derecha: Formulario Centrado */}
       <main className="flex flex-col justify-between p-8 sm:p-12 md:p-16 lg:p-20 xl:p-24 overflow-y-auto bg-white">
-        {/* Cabecera Móvil / Logo */}
+        {/* Cabecera / Logo */}
         <div className="flex items-center justify-between mb-8">
           <button
             type="button"
@@ -126,17 +139,17 @@ export default function VistaIngreso() {
           </span>
         </div>
 
-        {/* Formulario Editorial de Inicio de Sesión */}
+        {/* Formulario de Inicio de Sesión */}
         <div className="max-w-md w-full mx-auto my-auto">
           <header className="mb-10">
             <span className="text-[10px] uppercase tracking-[0.35em] text-[#3d5a80] font-bold block mb-1">
-              CUENTA CLIENTE / OPERADOR
+              CONTROL DE ACCESO MVVM
             </span>
             <h1 className="text-3xl sm:text-4xl font-black uppercase tracking-widest text-[#1e1e1e] leading-none mb-3">
               INICIAR SESIÓN
             </h1>
             <p className="text-xs uppercase tracking-[0.18em] text-[#3d5a80]/80 font-light">
-              Ingresa tus credenciales para continuar en la plataforma.
+              Ingresa tus credenciales para ser dirigido a tu panel correspondiente.
             </p>
           </header>
 
@@ -156,7 +169,7 @@ export default function VistaIngreso() {
           )}
 
           <form onSubmit={enviar} noValidate className="space-y-8">
-            {/* Campo: Correo (Minimalista: solo borde inferior) */}
+            {/* Campo: Correo */}
             <div className="relative">
               <label
                 htmlFor="correo"
@@ -189,7 +202,7 @@ export default function VistaIngreso() {
               )}
             </div>
 
-            {/* Campo: Clave (Minimalista: solo borde inferior) */}
+            {/* Campo: Clave */}
             <div className="relative">
               <div className="flex justify-between items-baseline mb-1.5">
                 <label
@@ -240,7 +253,7 @@ export default function VistaIngreso() {
               )}
             </div>
 
-            {/* Botón Principal Sólido en #ee6c4d Coral */}
+            {/* Botón Principal */}
             <button
               ref={refBoton}
               type="submit"
@@ -250,20 +263,9 @@ export default function VistaIngreso() {
               <span>{cargando ? 'Autenticando...' : 'Iniciar Sesión'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
-
-            {/* Enlace Sutil "Crear Cuenta" */}
-            <div className="text-center pt-2">
-              <button
-                type="button"
-                onClick={() => usarCuentaDemo(CUENTAS_DEMO[0])}
-                className="text-xs uppercase tracking-[0.18em] text-[#3d5a80] hover:text-[#1e1e1e] hover:underline transition-colors font-medium"
-              >
-                ¿No tienes cuenta? Crear cuenta o solicitar acceso →
-              </button>
-            </div>
           </form>
 
-          {/* Selector Discreto de Cuentas Demo de Prueba */}
+          {/* Accesos de prueba rápida para la evaluación */}
           {import.meta.env.DEV && (
             <div className="mt-12 pt-8 border-t border-[#293241]/10">
               <span className="text-[10px] uppercase tracking-[0.25em] font-bold text-[#3d5a80] block mb-3">
@@ -285,7 +287,7 @@ export default function VistaIngreso() {
           )}
         </div>
 
-        {/* Footer Minimalista */}
+        {/* Footer */}
         <footer className="text-center pt-8 border-t border-[#293241]/5">
           <p className="text-[10px] uppercase tracking-[0.25em] text-[#3d5a80]/60 font-mono">
             KYRO STUDIO © 2026. SERVICIO SEGURO DE AUTENTICACIÓN.
