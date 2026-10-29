@@ -1,12 +1,14 @@
-"""Simulación: 100 clientes compran el mismo producto al mismo tiempo.
+"""Simulación: muchos clientes compran el mismo producto al mismo tiempo.
 
 Usa el sistema de verdad (el backend levantado en el puerto 8000), igual que el navegador.
 Muestra que se vende exactamente lo que hay, que nadie paga dos veces y que el sistema
 sigue respondiendo durante la ráfaga.
 
 Uso (con los servicios levantados), desde servicioCompras:
-  python -m demostraciones.simulacion_100_usuarios            (stock 10)
+  python -m demostraciones.simulacion_100_usuarios            (100 clientes, stock 10)
   python -m demostraciones.simulacion_100_usuarios --stock 1  (la última unidad)
+  python -m demostraciones.simulacion_100_usuarios --usuarios 50 --stock 20 --repeticiones 3
+      (50 clientes que hacen triple clic: cada uno manda 3 veces la misma compra)
 """
 
 import argparse
@@ -72,71 +74,104 @@ def vigilar(detener: threading.Event, resultados: dict) -> None:
 
 def main() -> None:
     parametros = argparse.ArgumentParser()
-    parametros.add_argument("--stock", type=int, default=10)
-    stock = parametros.parse_args().stock
+    parametros.add_argument("--usuarios", type=int, default=100, help="cuántos clientes compran (máx. 100)")
+    parametros.add_argument("--stock", type=int, default=10, help="unidades del producto")
+    parametros.add_argument(
+        "--repeticiones", type=int, default=1,
+        help="veces que cada cliente manda LA MISMA compra a la vez (doble clic = 2)",
+    )
+    args = parametros.parse_args()
+    usuarios, stock, repeticiones = min(args.usuarios, len(CLIENTES)), args.stock, args.repeticiones
     http = httpx.Client(base_url=API, timeout=30)
 
     titulo("1. Revisando que la tienda esté levantada")
     revisar_servicios(http)
 
-    titulo("2. Preparando: 100 clientes inician sesión")
+    titulo(f"2. Preparando: {usuarios} clientes inician sesión")
     inicio = time.perf_counter()
     with ThreadPoolExecutor(max_workers=20) as ejecutor:
-        sesiones = list(ejecutor.map(lambda c: entrar(httpx.Client(base_url=API, timeout=30), c, CLAVE_CLIENTES), CLIENTES))
+        sesiones = list(ejecutor.map(lambda c: entrar(httpx.Client(base_url=API, timeout=30), c, CLAVE_CLIENTES), CLIENTES[:usuarios]))
     print(f"  {len(sesiones)} sesiones con JWT en {time.perf_counter() - inicio:.1f} s")
     operador = entrar(http, "operador@demo.cl", "Operador-Demo-2026")
     producto = http.get("/catalogo", headers=sesiones[0]).json()[0]
     dejar_stock(http, operador, producto, stock)
+    cobros_antes = httpx.get(f"{PASARELA}/cobros").json()["total"]
 
-    titulo(f"3. Los 100 clientes compran '{producto['nombre']}' al mismo tiempo")
-    largada = threading.Barrier(len(sesiones))
+    total_solicitudes = usuarios * repeticiones
+    detalle = f" ({repeticiones} veces cada uno, con la misma clave)" if repeticiones > 1 else ""
+    titulo(f"3. {usuarios} clientes compran '{producto['nombre']}' al mismo tiempo{detalle}")
+    largada = threading.Barrier(total_solicitudes)
     vigilancia = {"ok": 0, "falla": 0, "sesion": sesiones[0]}
     detener = threading.Event()
     vigia = threading.Thread(target=vigilar, args=(detener, vigilancia))
     vigia.start()
 
-    def comprar(sesion: dict) -> tuple[int, float, dict]:
+    # Cada cliente tiene UNA clave de idempotencia; si repite el clic, repite la clave.
+    claves = [uuid.uuid4().hex for _ in sesiones]
+    turnos = [n for n in range(usuarios) for _ in range(repeticiones)]
+
+    def comprar(n: int) -> tuple[int, int, float, dict]:
         with httpx.Client(base_url=API, timeout=30) as propio:
-            largada.wait()  # todos parten en el mismo instante
+            largada.wait()  # todas las solicitudes parten en el mismo instante
             t = time.perf_counter()
             r = propio.post(
                 "/pedidos",
                 json={"items": [{"producto_id": producto["producto_id"], "cantidad": 1}]},
-                headers={**sesion, "Idempotency-Key": uuid.uuid4().hex},
+                headers={**sesiones[n], "Idempotency-Key": claves[n]},
             )
-            return r.status_code, time.perf_counter() - t, r.json()
+            return n, r.status_code, time.perf_counter() - t, r.json()
 
     inicio = time.perf_counter()
-    with ThreadPoolExecutor(max_workers=len(sesiones)) as ejecutor:
-        respuestas = list(ejecutor.map(comprar, sesiones))
+    with ThreadPoolExecutor(max_workers=total_solicitudes) as ejecutor:
+        respuestas = list(ejecutor.map(comprar, turnos))
     duracion = time.perf_counter() - inicio
     time.sleep(0.5)
     detener.set()
     vigia.join()
 
-    aceptadas = [cuerpo for codigo, _, cuerpo in respuestas if codigo == 202]
-    sin_stock = sum(1 for codigo, _, _ in respuestas if codigo == 409)
-    otros = len(respuestas) - len(aceptadas) - sin_stock
-    tiempos = sorted(t * 1000 for _, t, _ in respuestas)
-    print(f"  Ráfaga de 100 compras en {duracion:.2f} s")
-    print(f"  {'Reserva aceptada (202)':<34}{len(aceptadas):>5}")
-    print(f"  {'Rechazada: sin stock (409)':<34}{sin_stock:>5}")
-    print(f"  {'Otros errores':<34}{otros:>5}")
+    # Por cliente: qué pedidos recibió y si alguna repetición quedó frenada por "ya se está procesando".
+    pedidos_de = {n: set() for n in range(usuarios)}
+    en_proceso = sin_stock = otros = 0
+    for n, codigo, _, cuerpo in respuestas:
+        if codigo == 202:
+            pedidos_de[n].add(cuerpo["pedido_id"])
+        elif codigo == 409 and "procesando" in cuerpo.get("detail", ""):
+            en_proceso += 1
+        elif codigo == 409:
+            sin_stock += 1
+        else:
+            otros += 1
+    pedidos = {pid: n for n, ids in pedidos_de.items() for pid in ids}
+    con_dos_pedidos = sum(1 for ids in pedidos_de.values() if len(ids) > 1)
+    tiempos = sorted(t * 1000 for _, _, t, _ in respuestas)
+
+    print(f"  {total_solicitudes} solicitudes en {duracion:.2f} s")
+    print(f"  {'Clientes que reservaron':<44}{len(pedidos):>5}")
+    print(f"  {'Clientes sin stock (409)':<44}{usuarios - len(pedidos):>5}")
+    if repeticiones > 1:
+        print(f"  {'Repeticiones frenadas: ya se está procesando':<44}{en_proceso:>5}")
+        print(f"  {'Clientes con más de un pedido':<44}{con_dos_pedidos:>5}")
+    print(f"  {'Otros errores':<44}{otros:>5}")
     print(f"  Tiempo de respuesta: mediana {statistics.median(tiempos):.0f} ms | peor {tiempos[-1]:.0f} ms")
     print(f"  Mientras tanto el sistema respondió {vigilancia['ok']} de {vigilancia['ok'] + vigilancia['falla']} consultas")
 
     titulo("4. La Saga: el pago viaja por Kafka al servicio de pagos")
     estados = {}
     limite = time.monotonic() + 40
-    for pedido in aceptadas:
+    for pedido_id, n in pedidos.items():
         while True:
-            estado = http.get(f"/pedidos/{pedido['pedido_id']}", headers=_dueno(sesiones, respuestas, pedido)).json()["estado"]
+            estado = http.get(f"/pedidos/{pedido_id}", headers=sesiones[n]).json()["estado"]
             if estado != "stock_reservado" or time.monotonic() > limite:
                 break
             time.sleep(0.3)
         estados[estado] = estados.get(estado, 0) + 1
     for estado, cantidad in estados.items():
         print(f"  {estado:<20}{cantidad:>5}")
+    cobros = httpx.get(f"{PASARELA}/cobros").json()
+    cobros_nuevos = cobros["total"] - cobros_antes
+    claves_cobradas = [c["clave"] for c in cobros["cobros"]]
+    cobros_dobles = len(claves_cobradas) - len(set(claves_cobradas))
+    print(f"  Cobros nuevos en la pasarela: {cobros_nuevos} | claves cobradas dos veces: {cobros_dobles}")
 
     titulo("5. ¿Cuadra el stock?")
     time.sleep(1.5)  # el proyector lleva el stock a Mongo por Kafka
@@ -148,37 +183,21 @@ def main() -> None:
     print(f"  Stock en MongoDB (lo que ve el cliente): {en_mongo}")
     print(f"  Stock según la auditoría (movimientos):  {auditoria}")
 
-    titulo("6. Doble clic: un cliente manda 5 veces la misma compra (misma clave)")
-    dejar_stock(http, operador, producto, 5)
-    clave = uuid.uuid4().hex
-    with ThreadPoolExecutor(max_workers=5) as ejecutor:
-        repetidas = list(ejecutor.map(
-            lambda _: http.post("/pedidos", json={"items": [{"producto_id": producto["producto_id"], "cantidad": 1}]},
-                                headers={**sesiones[1], "Idempotency-Key": clave}),
-            range(5),
-        ))
-    pedidos_distintos = {r.json().get("pedido_id") for r in repetidas if r.status_code == 202}
-    print(f"  Respuestas: {[r.status_code for r in repetidas]}  (409 = 'ya se está procesando')")
-    print(f"  Pedidos creados: {len(pedidos_distintos)}")
-
+    vendidas = min(stock, usuarios)
     titulo("RESULTADO")
     correcto = (
-        len(aceptadas) == stock and otros == 0 and vigilancia["falla"] == 0
-        and en_postgres == en_mongo == auditoria == 0 and len(pedidos_distintos) == 1
+        len(pedidos) == vendidas and con_dos_pedidos == 0 and otros == 0 and vigilancia["falla"] == 0
+        and estados.get("pagado", 0) == cobros_nuevos == vendidas and cobros_dobles == 0
+        and en_postgres == en_mongo == auditoria == stock - vendidas
     )
     if correcto:
-        print(f"  OK: había {stock} y se vendieron exactamente {stock}. Sin sobreventa, sin pedidos")
-        print("  duplicados, el stock cuadra en las dos bases y el sistema nunca dejó de responder.")
+        print(f"  OK: había {stock} y se vendieron exactamente {vendidas}, con {vendidas} cobros.")
+        if repeticiones > 1:
+            print(f"  Las {total_solicitudes} solicitudes ({repeticiones} por cliente) dieron un solo pedido por cliente.")
+        print("  Sin sobreventa, sin cobros dobles, el stock cuadra en las dos bases y el sistema")
+        print("  nunca dejó de responder.")
     else:
         print("  Algo no cuadró, revisar los números de arriba.")
-
-
-def _dueno(sesiones, respuestas, pedido) -> dict:
-    """El pedido se consulta con la sesión de quien lo compró (cada cliente ve solo los suyos)."""
-    for sesion, (_, _, cuerpo) in zip(sesiones, respuestas):
-        if cuerpo.get("pedido_id") == pedido["pedido_id"]:
-            return sesion
-    return sesiones[0]
 
 
 if __name__ == "__main__":
