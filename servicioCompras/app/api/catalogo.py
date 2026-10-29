@@ -1,57 +1,56 @@
-"""Catálogo para cualquier usuario con sesión (el cliente compra desde aquí)."""
+"""Catálogo para cualquier usuario con sesión (el cliente compra desde aquí).
 
-from fastapi import APIRouter, Depends
+Se lee desde MongoDB, el modelo de lectura (ver infraestructura/catalogo_documental.py).
+La categoría y los atributos vienen del documento de cada prenda, no se adivinan.
+"""
+
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from pymongo.errors import PyMongoError
 
-from app.api.dependencias import obtener_sesion, usuario_actual
-from app.infraestructura.repositorios import RepositorioInventario
+from app.api.dependencias import usuario_actual
+from app.infraestructura.catalogo_documental import RepositorioCatalogo
 
 enrutador = APIRouter(
     prefix="/catalogo",
     tags=["catálogo"],
-    dependencies=[Depends(usuario_actual)],  
+    dependencies=[Depends(usuario_actual)],
 )
-
-
-def _inferir_categoria(nombre: str) -> str:
-    n = nombre.lower()
-    if any(k in n for k in ("hoodie", "polerón", "poleron", "crewneck", "sweater")):
-        return "Polerones"
-    if any(k in n for k in ("polera", "tee", "top", "manga larga")):
-        return "Poleras"
-    if any(k in n for k in ("calcetín", "calcetin", "calcetines", "sock")):
-        return "Calcetines"
-    if any(k in n for k in ("gorra", "beanie", "cap", "hat", "dad hat", "snapback")):
-        return "Gorras"
-    if any(k in n for k in ("pantalón", "pantalon", "cargo", "chino", "wide leg")):
-        return "Pantalones"
-    if any(k in n for k in ("blusa", "camisa", "túnica", "tunica")):
-        return "Blusas"
-    return "Polerones"
 
 
 class ProductoCatalogo(BaseModel):
     producto_id: int
     nombre: str
     descripcion: str | None
-    precio: int  
+    categoria: str
+    precio: int  # pesos chilenos, sin decimales
     disponibles: int
-    categoria: str = "Polerones"
+    atributos: dict = {}  # tallas, colores, material... cambian según la prenda
+
+
+class Categoria(BaseModel):
+    nombre: str
+    productos: int
+    unidades: int
+
+
+def _sin_catalogo(error: Exception) -> HTTPException:
+    return HTTPException(
+        status.HTTP_503_SERVICE_UNAVAILABLE, "El catálogo no está disponible en este momento."
+    )
 
 
 @enrutador.get("", response_model=list[ProductoCatalogo])
-def listar_catalogo(sesion: Session = Depends(obtener_sesion)):
-    # solo_activos=True: excluye productos eliminados o tecnológicos archivados
-    filas = RepositorioInventario(sesion).listar_con_producto(solo_activos=True)
-    return [
-        ProductoCatalogo(
-            producto_id=p.id,
-            nombre=p.nombre,
-            descripcion=p.descripcion,
-            precio=p.precio,
-            disponibles=i.cantidad,
-            categoria=_inferir_categoria(p.nombre),
-        )
-        for p, i in filas
-    ]
+def listar_catalogo(categoria: str | None = None):
+    try:
+        return RepositorioCatalogo().listar(categoria)
+    except PyMongoError as error:
+        raise _sin_catalogo(error) from error
+
+
+@enrutador.get("/categorias", response_model=list[Categoria])
+def listar_categorias():
+    try:
+        return RepositorioCatalogo().categorias()
+    except PyMongoError as error:
+        raise _sin_catalogo(error) from error

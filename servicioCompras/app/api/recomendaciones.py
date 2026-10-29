@@ -7,11 +7,9 @@ compra no pasan por aquí, así que siguen funcionando igual.
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
-
 from app.api.catalogo import ProductoCatalogo
-from app.api.dependencias import obtener_recomendaciones, obtener_sesion, usuario_actual
-from app.infraestructura.repositorios import RepositorioInventario
+from app.api.dependencias import obtener_recomendaciones, usuario_actual
+from app.infraestructura.catalogo_documental import RepositorioCatalogo
 from app.infraestructura.servicios_externos import ClienteRecomendaciones, ServicioNoDisponible
 
 enrutador = APIRouter(
@@ -28,7 +26,6 @@ class Recomendaciones(BaseModel):
 
 @enrutador.get("", response_model=Recomendaciones)
 def listar_recomendaciones(
-    sesion: Session = Depends(obtener_sesion),
     servicio: ClienteRecomendaciones = Depends(obtener_recomendaciones),
 ):
     try:
@@ -37,16 +34,6 @@ def listar_recomendaciones(
         return Recomendaciones(disponible=False, productos=[])
 
     # El servicio solo conoce ids; nombre, precio y stock salen del catálogo propio.
-    filas = {p.id: (p, i) for p, i in RepositorioInventario(sesion).listar_con_producto(solo_activos=True)}
-    productos = [
-        ProductoCatalogo(
-            producto_id=p.id,
-            nombre=p.nombre,
-            descripcion=p.descripcion,
-            precio=p.precio,
-            disponibles=i.cantidad,
-        )
-        for p, i in (filas[pid] for pid in ids if pid in filas)
-        if i.cantidad > 0
-    ]
+    por_id = RepositorioCatalogo().por_id(ids)
+    productos = [por_id[pid] for pid in ids if pid in por_id and por_id[pid]["disponibles"] > 0]
     return Recomendaciones(disponible=True, productos=productos)

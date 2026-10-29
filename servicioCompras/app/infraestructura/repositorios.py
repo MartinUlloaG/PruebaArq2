@@ -9,6 +9,7 @@ from sqlalchemy import case, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, selectinload
 
+from app.infraestructura.mensajeria import CAMBIOS_STOCK
 from app.infraestructura.modelos import (
     TIPOS_ENTRADA,
     ClaveIdempotencia,
@@ -55,8 +56,35 @@ class RepositorioInventario:
     def __init__(self, sesion: Session):
         self.sesion = sesion
 
+    def _registrar_movimiento(
+        self, producto_id: int, tipo: str, cantidad: int, restante: int, pedido_id: int | None = None
+    ) -> None:
+        """Todo cambio de stock deja dos cosas en la MISMA transacción:
+        - el movimiento (auditoría: stock = entradas - salidas), y
+        - el evento catalogo.stock en el outbox, para que el proyector actualice Mongo.
+        El id del movimiento sirve de versión: crece en el orden en que se bloqueó la fila.
+        """
+        movimiento = MovimientoInventario(
+            producto_id=producto_id, pedido_id=pedido_id, tipo=tipo, cantidad=cantidad
+        )
+        self.sesion.add(movimiento)
+        self.sesion.flush()  # obtiene movimiento.id
+        self.sesion.add(
+            Outbox(
+                topico=CAMBIOS_STOCK,
+                clave=str(producto_id),
+                contenido={"producto_id": producto_id, "disponibles": restante, "version": movimiento.id},
+            )
+        )
+
     def reservar(self, producto_id: int, cantidad: int, pedido_id: int) -> int | None:
-        """Descuenta stock solo si alcanza, y deja el movimiento "reserva" en la auditoría."""
+        """Descuenta stock solo si alcanza, y deja el movimiento "reserva" en la auditoría.
+
+        UPDATE condicional: la condición (cantidad >= n) se evalúa en la misma instrucción
+        que escribe. Si dos compras llegan juntas, Postgres bloquea la fila; la segunda
+        espera y vuelve a evaluar la condición con el stock ya descontado.
+        Devuelve el stock que queda, o None si no alcanzaba (no se tocó nada).
+        """
         restante = self.sesion.scalar(
             update(Inventario)
             .where(Inventario.producto_id == producto_id, Inventario.cantidad >= cantidad)
@@ -64,38 +92,22 @@ class RepositorioInventario:
             .returning(Inventario.cantidad)
         )
         if restante is not None:
-            self.sesion.add(
-                MovimientoInventario(
-                    producto_id=producto_id, pedido_id=pedido_id, tipo="reserva", cantidad=cantidad
-                )
-            )
+            self._registrar_movimiento(producto_id, "reserva", cantidad, restante, pedido_id)
         return restante
 
     def liberar(self, producto_id: int, cantidad: int, pedido_id: int) -> None:
         """Compensación de la Saga: devuelve al stock lo que se reservó, con su movimiento."""
-        self.sesion.execute(
+        restante = self.sesion.scalar(
             update(Inventario)
             .where(Inventario.producto_id == producto_id)
             .values(cantidad=Inventario.cantidad + cantidad)
+            .returning(Inventario.cantidad)
         )
-        self.sesion.add(
-            MovimientoInventario(
-                producto_id=producto_id, pedido_id=pedido_id, tipo="liberacion", cantidad=cantidad
-            )
-        )
-
-    def listar_con_producto(self, solo_activos: bool = False) -> list[tuple[Producto, Inventario]]:
-        consulta = (
-            select(Producto, Inventario)
-            .join(Inventario, Inventario.producto_id == Producto.id)
-            .order_by(Producto.id)
-        )
-        if solo_activos:
-            consulta = consulta.where(Producto.activo)
-        return [(producto, inventario) for producto, inventario in self.sesion.execute(consulta)]
+        self._registrar_movimiento(producto_id, "liberacion", cantidad, restante, pedido_id)
 
     def ajustar_stock(self, producto_id: int, cantidad: int, tipo: str = "ajuste_entrada") -> int:
-        """Registra un ajuste o recepción de inventario manteniendo la auditoría (entradas - salidas)."""
+        """Ajuste del operador (recepción o merma). Una salida usa el mismo UPDATE condicional
+        que la compra: nunca deja el stock negativo."""
         if tipo == "ajuste_salida":
             restante = self.sesion.scalar(
                 update(Inventario)
@@ -113,14 +125,19 @@ class RepositorioInventario:
                 .returning(Inventario.cantidad)
             )
             if restante is None:
-                inv = Inventario(producto_id=producto_id, cantidad=cantidad)
-                self.sesion.add(inv)
-                self.sesion.flush()
-                restante = cantidad
-        self.sesion.add(
-            MovimientoInventario(producto_id=producto_id, tipo=tipo, cantidad=cantidad)
-        )
+                raise ValueError("El producto no existe.")
+        self._registrar_movimiento(producto_id, tipo, cantidad, restante)
         return restante
+
+    def listar_con_producto(self, solo_activos: bool = False) -> list[tuple[Producto, Inventario]]:
+        consulta = (
+            select(Producto, Inventario)
+            .join(Inventario, Inventario.producto_id == Producto.id)
+            .order_by(Producto.id)
+        )
+        if solo_activos:
+            consulta = consulta.where(Producto.activo)
+        return [(producto, inventario) for producto, inventario in self.sesion.execute(consulta)]
 
     def total_stock_critico(self, umbral: int = 5) -> int:
         return self.sesion.scalar(
@@ -141,15 +158,15 @@ class RepositorioPedidos:
     def __init__(self, sesion: Session):
         self.sesion = sesion
 
-    def crear(self, usuario_id: int, producto: Producto, cantidad: int, estado: str) -> Pedido:
+    def crear(self, usuario_id: int, lineas: list[tuple[Producto, int]], estado: str) -> Pedido:
+        """El precio se copia a cada ítem: si el producto cambia de precio, el pedido no cambia."""
         pedido = Pedido(
             usuario_id=usuario_id,
             estado=estado,
-            total=producto.precio * cantidad,
+            total=sum(producto.precio * cantidad for producto, cantidad in lineas),
             items=[
-                ItemPedido(
-                    producto_id=producto.id, cantidad=cantidad, precio_unitario=producto.precio
-                )
+                ItemPedido(producto_id=producto.id, cantidad=cantidad, precio_unitario=producto.precio)
+                for producto, cantidad in lineas
             ],
         )
         self.sesion.add(pedido)
@@ -187,11 +204,10 @@ class RepositorioPedidos:
         return self.sesion.scalar(select(func.count()).select_from(Pedido)) or 0
 
     def total_ingresos(self) -> int:
+        """Solo lo cobrado: una reserva con el pago en proceso todavía no es un ingreso."""
         return self.sesion.scalar(
-            select(func.coalesce(func.sum(Pedido.total), 0)).where(
-                Pedido.estado.in_(["pagado", "stock_reservado"])
-            )
-        ) or 0
+            select(func.coalesce(func.sum(Pedido.total), 0)).where(Pedido.estado == "pagado")
+        )
 
 
 class RepositorioPagos:

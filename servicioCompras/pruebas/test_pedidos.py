@@ -108,7 +108,7 @@ def test_la_misma_clave_con_otra_compra_responde_422(crear_producto):
 def test_sin_clave_de_idempotencia_responde_422(crear_producto):
     producto_id = crear_producto(stock=1)
     respuesta = cliente_http.post(
-        "/pedidos", json={"producto_id": producto_id, "cantidad": 1}, headers=encabezado("cliente")
+        "/pedidos", json={"items": [{"producto_id": producto_id, "cantidad": 1}]}, headers=encabezado("cliente")
     )
     assert respuesta.status_code == 422
     assert stock_y_saldo(producto_id) == (1, 1)
@@ -216,7 +216,7 @@ def test_solo_el_cliente_puede_comprar(crear_producto, rol):
 
 def test_sin_sesion_no_se_puede_comprar():
     respuesta = cliente_http.post(
-        "/pedidos", json={"producto_id": 1, "cantidad": 1}, headers={"Idempotency-Key": "x"}
+        "/pedidos", json={"items": [{"producto_id": 1, "cantidad": 1}]}, headers={"Idempotency-Key": "x"}
     )
     assert respuesta.status_code == 401
 
@@ -236,7 +236,7 @@ def test_100_compras_simultaneas_de_la_ultima_unidad_dan_un_solo_exito(crear_pro
         largada.wait()
         with Sesion() as sesion:
             try:
-                compras.iniciar_compra(sesion, usuario_id, producto_id, 1)
+                compras.iniciar_compra(sesion, usuario_id, {producto_id: 1})
                 return True
             except compras.StockInsuficiente:
                 return False

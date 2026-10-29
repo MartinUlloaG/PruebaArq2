@@ -1,34 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import {
-  AlertTriangle,
-  ArrowDownRight,
-  ArrowUpRight,
-  CheckCircle2,
-  Package,
-  Plus,
-  RefreshCw,
-  Search,
-  ShieldCheck,
-  SlidersHorizontal,
-} from 'lucide-react'
+import { AlertTriangle, CheckCircle2, RefreshCw, Search } from 'lucide-react'
 import { formatearPrecio, POCO_STOCK } from '../modelosVista/stock'
 import { useRecurso } from '../modelosVista/useRecurso'
 import { ajustarStock, listarInventario } from '../servicios/paneles'
-import { obtenerFotoParaPrenda, resolverImagenPrenda } from '../servicios/imagenesPrendas'
 import EstadoCarga from './EstadoCarga'
 
-export const CATEGORIAS_FILTRO = [
-  'Todos',
-  'Polerones',
-  'Poleras',
-  'Calcetines',
-  'Gorras',
-  'Blusas',
-  'Pantalones',
-]
-
 export default function VistaInventario() {
-  const { datos, cargando, error, reintentar, recargar, mutar } = useRecurso(listarInventario)
+  const { datos, cargando, error, reintentar, recargar } = useRecurso(listarInventario)
 
   const [busqueda, setBusqueda] = useState('')
   const [categoriaSeleccionada, setCategoriaSeleccionada] = useState('Todos')
@@ -54,14 +32,15 @@ export default function VistaInventario() {
     return () => clearTimeout(timer)
   }, [mensajeExito])
 
-  const listaProductos = useMemo(() => {
-    if (!Array.isArray(datos)) return []
-    const terminos = ['audif', 'teclado', 'mouse', 'monitor', 'webcam', 'consola', 'wireless', 'auricular']
-    return datos.filter((p) => {
-      const n = (p.nombre || '').toLowerCase()
-      return !terminos.some((t) => n.includes(t))
-    })
-  }, [datos])
+  const listaProductos = useMemo(() => datos ?? [], [datos])
+
+  // Las categorías salen de los productos que llegaron de la API.
+  const categoriasFiltro = useMemo(
+    () => ['Todos', ...new Set(listaProductos.map((p) => p.categoria).filter(Boolean))].sort((a, b) =>
+      a === 'Todos' ? -1 : b === 'Todos' ? 1 : a.localeCompare(b),
+    ),
+    [listaProductos],
+  )
 
   // Métricas operativas en tiempo real
   const metricas = useMemo(() => {
@@ -102,44 +81,19 @@ export default function VistaInventario() {
     })
   }, [listaProductos, categoriaSeleccionada, filtroEstado, busqueda])
 
-  // Función para registrar recepción (+ stock) o ajuste por salida (- stock)
+  // Recepción (+) o merma (-). Después se vuelve a leer el stock real desde la API.
   async function manejarAjuste(productoId, cantidad, tipo) {
     setAccionEnCurso(productoId)
     setErrorAjuste(null)
-
-    // 1. Actualización reactiva instantánea en la interfaz (optimista)
-    mutar((actuales) => {
-      if (!Array.isArray(actuales)) return actuales
-      return actuales.map((item) => {
-        if (item.producto_id === productoId) {
-          const nuevaCant =
-            tipo === 'ajuste_salida'
-              ? Math.max(0, (item.cantidad || 0) - cantidad)
-              : (item.cantidad || 0) + cantidad
-          return { ...item, cantidad: nuevaCant }
-        }
-        return item
-      })
-    })
-
     try {
-      const respuesta = await ajustarStock(productoId, cantidad, tipo)
-      if (respuesta && typeof respuesta.cantidad === 'number') {
-        mutar((actuales) => {
-          if (!Array.isArray(actuales)) return actuales
-          return actuales.map((item) =>
-            item.producto_id === productoId ? { ...item, cantidad: respuesta.cantidad } : item
-          )
-        })
-      }
-      recargar()
+      await ajustarStock(productoId, cantidad, tipo)
       setMensajeExito(
-        `${tipo === 'ajuste_entrada' ? 'Recepción de stock (+ ' + cantidad + ')' : 'Ajuste de salida (- ' + cantidad + ')'} registrada exitosamente para SKU #${productoId}.`
+        `${tipo === 'ajuste_entrada' ? `Recepción de ${cantidad}` : `Salida de ${cantidad}`} registrada para SKU #${productoId}.`,
       )
     } catch (err) {
-      recargar()
-      setErrorAjuste(err.message || 'Error al procesar el ajuste de inventario.')
+      setErrorAjuste(err.message)
     } finally {
+      recargar()
       setAccionEnCurso(null)
     }
   }
@@ -247,7 +201,7 @@ export default function VistaInventario() {
       {/* 3. Filtros y Búsqueda Operativa */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
         <div className="flex flex-wrap items-center gap-2">
-          {CATEGORIAS_FILTRO.map((cat) => (
+          {categoriasFiltro.map((cat) => (
             <button
               key={cat}
               type="button"
@@ -315,7 +269,6 @@ export default function VistaInventario() {
                   const stock = item.cantidad
                   const agotado = stock === 0
                   const critico = stock > 0 && stock <= POCO_STOCK
-                  const foto = resolverImagenPrenda(item.nombre, item.categoria, id)
                   const procesando = accionEnCurso === id
 
                   return (
@@ -325,28 +278,18 @@ export default function VistaInventario() {
                     >
                       {/* Prenda & Miniatura */}
                       <td className="py-3.5 px-4 font-semibold text-[#1e1e1e]">
-                        <div className="flex items-center gap-3">
-                          <img
-                            src={foto}
-                            alt={item.nombre}
-                            className="w-10 h-12 object-cover object-center bg-gray-100 flex-shrink-0"
-                            loading="lazy"
-                          />
-                          <div>
-                            <span className="block font-bold text-xs">{item.nombre}</span>
-                            <span className="text-[10px] text-[#3d5a80] font-mono">SKU-{String(id).padStart(3, '0')}</span>
-                          </div>
-                        </div>
+                        <span className="block font-bold text-xs">{item.nombre}</span>
+                        <span className="text-[10px] text-[#3d5a80] font-mono">SKU-{String(id).padStart(3, '0')}</span>
                       </td>
 
                       {/* Categoría */}
                       <td className="py-3.5 px-3 text-[#3d5a80] font-medium text-[11px]">
-                        {item.categoria || 'Polerones'}
+                        {item.categoria ?? '—'}
                       </td>
 
                       {/* Precio */}
                       <td className="py-3.5 px-3 text-right font-semibold text-[#1e1e1e] tabular-nums">
-                        {formatearPrecio(item.precio || 39990)}
+                        {formatearPrecio(item.precio)}
                       </td>
 
                       {/* Cantidad / Unidades */}

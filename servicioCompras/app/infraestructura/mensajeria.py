@@ -27,7 +27,9 @@ registro = logging.getLogger("mensajeria")
 SOLICITUDES_PAGO = "pagos.solicitudes"  # núcleo -> servicio de pagos
 RESULTADOS_PAGO = "pagos.resultados"  # servicio de pagos -> núcleo
 MUERTOS = "pagos.muertos"  # Dead Letter Queue: se revisa a mano
-TOPICOS = (SOLICITUDES_PAGO, RESULTADOS_PAGO, MUERTOS)
+# Aparte de los pagos (otra criticidad): cada cambio de stock, para proyectarlo en Mongo.
+CAMBIOS_STOCK = "catalogo.stock"
+TOPICOS = (SOLICITUDES_PAGO, RESULTADOS_PAGO, MUERTOS, CAMBIOS_STOCK)
 
 # log_level 3 = solo errores: librdkafka anota cada reconexión mientras el broker parte.
 BASE = {"bootstrap.servers": configuracion.kafka_servidores, "log_level": 3}

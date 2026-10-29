@@ -1,12 +1,15 @@
 import { pedir } from './clienteApi'
 
 // Solo clientes: la API responde 403 a los demás roles.
+// Se manda el carrito completo: o se reservan todos los productos o ninguno.
 // La clave de idempotencia identifica ESTA compra: si la solicitud se repite
 // (reintento de red), el servidor devuelve la misma respuesta y no cobra dos veces.
-export function comprar(productoId, cantidad, claveIdempotencia) {
+export function comprar(items, claveIdempotencia) {
   return pedir('/pedidos', {
     metodo: 'POST',
-    cuerpo: { producto_id: productoId, cantidad },
+    cuerpo: {
+      items: items.map((i) => ({ producto_id: i.producto_id, cantidad: i.cantidad })),
+    },
     encabezadosExtra: { 'Idempotency-Key': claveIdempotencia },
   })
 }

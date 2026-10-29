@@ -1,4 +1,4 @@
-// ViewModel de la compra: qué producto se está comprando y cómo terminó la última compra.
+// ViewModel de la compra del carrito: en qué etapa va y cómo terminó.
 import { useState } from 'react'
 
 import { comprar as comprarEnApi, obtenerPedido } from '../servicios/pedidos'
@@ -19,19 +19,18 @@ async function esperarPago(pedidoId) {
   return null // sigue en proceso
 }
 
-// `alTerminar` recarga el catálogo: tras comprar, o si el pago falló y el stock volvió.
-export function useCompra(alTerminar) {
-  const [comprando, setComprando] = useState(null) // producto_id en curso
-  const [etapa, setEtapa] = useState(null) // 'reservando' | 'pagando'
+// `alPagar` se llama solo si el pago se aprobó (ahí se vacía el carrito).
+export function useCompra(alPagar) {
+  const [etapa, setEtapa] = useState(null) // null | 'reservando' | 'pagando'
   const [resultado, setResultado] = useState(null) // { tipo: 'exito' | 'error' | 'aviso', texto }
 
-  async function comprar(producto) {
-    setComprando(producto.producto_id)
+  async function comprar(items) {
+    if (items.length === 0) return
     setEtapa('reservando')
     setResultado(null)
     try {
-      // Una clave nueva por cada clic en Comprar (crypto.randomUUID existe en localhost y HTTPS).
-      const reservado = await comprarEnApi(producto.producto_id, 1, crypto.randomUUID())
+      // Una clave nueva por cada clic en Pagar (crypto.randomUUID existe en localhost y HTTPS).
+      const reservado = await comprarEnApi(items, crypto.randomUUID())
       setEtapa('pagando')
       const pedido = await esperarPago(reservado.pedido_id)
       if (pedido === null) {
@@ -42,8 +41,9 @@ export function useCompra(alTerminar) {
       } else if (pedido.estado === 'pagado') {
         setResultado({
           tipo: 'exito',
-          texto: `Pedido #${pedido.pedido_id} pagado: compraste ${producto.nombre} por ${formatearPrecio(pedido.total)}.`,
+          texto: `Pedido #${pedido.pedido_id} pagado por ${formatearPrecio(pedido.total)}.`,
         })
+        alPagar(pedido)
       } else {
         setResultado({
           tipo: 'error',
@@ -53,11 +53,9 @@ export function useCompra(alTerminar) {
     } catch (error) {
       setResultado({ tipo: 'error', texto: error.message })
     } finally {
-      setComprando(null)
       setEtapa(null)
-      alTerminar()
     }
   }
 
-  return { comprando, etapa, resultado, comprar }
+  return { etapa, resultado, comprar, limpiarResultado: () => setResultado(null) }
 }

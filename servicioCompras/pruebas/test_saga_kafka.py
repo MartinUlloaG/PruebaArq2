@@ -17,6 +17,7 @@ import pagos
 import pasarela as pasarela_simulada
 from app import trabajadores
 from app.infraestructura import mensajeria
+from app.infraestructura.catalogo_documental import RepositorioCatalogo
 from circuit_breaker import CircuitBreaker
 
 
@@ -74,3 +75,19 @@ def test_pago_rechazado_por_kafka_devuelve_el_stock(crear_producto, saga):
 
     assert _esperar_estado(pedido_id) == "fallido"
     assert stock_y_saldo(producto_id) == (3, 3)
+
+
+def test_el_stock_comprado_llega_al_catalogo_en_mongo(crear_producto, saga):
+    """CQRS: la compra descuenta en Postgres y el proyector lleva ese stock a Mongo por Kafka."""
+    producto_id = crear_producto(stock=5)
+    catalogo = RepositorioCatalogo()
+    catalogo.guardar(producto_id, {"nombre": "Prueba", "categoria": "Pruebas", "precio": 1000,
+                                   "disponibles": 5, "version_stock": 0, "activo": True})
+    try:
+        comprar(producto_id, 2)
+        limite = time.monotonic() + 30
+        while time.monotonic() < limite and catalogo.por_id([producto_id])[producto_id]["disponibles"] != 3:
+            time.sleep(0.3)
+        assert catalogo.por_id([producto_id])[producto_id]["disponibles"] == 3
+    finally:
+        catalogo.coleccion.delete_one({"_id": producto_id})

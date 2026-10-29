@@ -33,7 +33,7 @@ def encabezado(rol: str) -> dict:
 def comprar(producto_id, cantidad, rol: str = "cliente", clave: str | None = None) -> httpx.Response:
     encabezados = {**encabezado(rol), "Idempotency-Key": clave or uuid.uuid4().hex}
     return cliente_http.post(
-        "/pedidos", json={"producto_id": producto_id, "cantidad": cantidad}, headers=encabezados
+        "/pedidos", json={"items": [{"producto_id": producto_id, "cantidad": cantidad}]}, headers=encabezados
     )
 
 

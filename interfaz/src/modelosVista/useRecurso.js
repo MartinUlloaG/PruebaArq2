@@ -1,5 +1,5 @@
 // ViewModel genérico para listas que vienen de la API: datos, carga y error.
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 // `cargar` debe ser una función estable (definida a nivel de módulo), si no se recarga en cada render.
 export function useRecurso(cargar) {
@@ -16,23 +16,14 @@ export function useRecurso(cargar) {
     }
   }, [cargar, intento])
 
-  function reintentar() {
+  const reintentar = useCallback(() => {
     setEstado((anterior) => ({ ...anterior, error: null, cargando: true }))
     setIntento((n) => n + 1)
-  }
+  }, [])
 
   // Vuelve a pedir los datos sin mostrar "Cargando…": la lista no parpadea ni pierde el foco.
-  function recargar() {
-    setIntento((n) => n + 1)
-  }
+  // Estable entre renders (useCallback), así se puede usar en un setInterval.
+  const recargar = useCallback(() => setIntento((n) => n + 1), [])
 
-  // Actualización reactiva/optimista inmediata del estado local
-  function mutar(transformar) {
-    setEstado((anterior) => ({
-      ...anterior,
-      datos: typeof transformar === 'function' ? transformar(anterior.datos) : transformar,
-    }))
-  }
-
-  return { ...estado, reintentar, recargar, mutar }
+  return { ...estado, reintentar, recargar }
 }

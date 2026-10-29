@@ -85,12 +85,6 @@ export default function VistaIngreso() {
     <div className="min-h-screen w-full grid grid-cols-1 lg:grid-cols-2 bg-white text-[#1e1e1e]">
       {/* 1. Mitad Izquierda: Split-Screen Editorial (Prenda Minimalista Studio, sin rostros) */}
       <section className="relative hidden lg:block h-full bg-[#293241] overflow-hidden select-none">
-        <img
-          src="https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=1400&q=85"
-          alt="KYRO Campaña Editorial 2026"
-          className="absolute inset-0 w-full h-full object-cover object-center opacity-85 filter contrast-[1.05]"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#293241] via-black/40 to-black/20" />
 
         <div className="absolute inset-0 p-16 flex flex-col justify-between z-10 text-white">
           <div className="flex items-center gap-2">

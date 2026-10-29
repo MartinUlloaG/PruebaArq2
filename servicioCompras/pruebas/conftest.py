@@ -4,6 +4,7 @@ import pytest
 from sqlalchemy import delete, select
 
 from ayudantes import PRECIO
+from app.infraestructura import mensajeria
 from app.infraestructura.base import Sesion
 from app.infraestructura.modelos import (
     Inventario,
@@ -46,7 +47,12 @@ def crear_producto():
         for producto_id in creados:
             pedidos = select(ItemPedido.pedido_id).where(ItemPedido.producto_id == producto_id)
             pedido_ids = list(sesion.scalars(pedidos))
-            sesion.execute(delete(Outbox).where(Outbox.clave.in_([str(i) for i in pedido_ids])))
+            sesion.execute(
+                delete(Outbox).where(
+                    (Outbox.topico != mensajeria.CAMBIOS_STOCK) & Outbox.clave.in_([str(i) for i in pedido_ids])
+                    | (Outbox.topico == mensajeria.CAMBIOS_STOCK) & (Outbox.clave == str(producto_id))
+                )
+            )
             sesion.execute(delete(MovimientoInventario).where(MovimientoInventario.producto_id == producto_id))
             sesion.execute(delete(ItemPedido).where(ItemPedido.pedido_id.in_(pedido_ids)))
             sesion.execute(delete(Pago).where(Pago.pedido_id.in_(pedido_ids)))

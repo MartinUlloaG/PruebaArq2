@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { LogOut, Menu, User, X } from 'lucide-react'
+import { LogOut, Menu, X } from 'lucide-react'
 import { ROLES, seccionesPara } from '../modelosVista/roles'
 import { useSesion } from '../modelosVista/useSesion'
 

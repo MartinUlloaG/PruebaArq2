@@ -3,6 +3,7 @@
 - relay del outbox: publica en Kafka lo que dejó la compra en la tabla outbox.
 - consumidor de resultados: aplica el resultado del pago (paso 3 de la Saga).
 - vencedor de reservas: devuelve el stock de los pedidos cuyo pago no llegó a tiempo.
+- proyector del catálogo: copia cada cambio de stock de Postgres a Mongo (CQRS).
 """
 
 import logging
@@ -12,6 +13,7 @@ from app.configuracion import configuracion
 from app.dominio import compras
 from app.infraestructura import mensajeria
 from app.infraestructura.base import Sesion
+from app.infraestructura.catalogo_documental import RepositorioCatalogo
 
 registro = logging.getLogger("trabajadores")
 
@@ -19,6 +21,10 @@ registro = logging.getLogger("trabajadores")
 def _aplicar_resultado(evento: dict) -> None:
     with Sesion() as sesion:
         compras.aplicar_resultado_pago(sesion, evento)
+
+
+def _proyectar_stock(evento: dict) -> None:
+    RepositorioCatalogo().actualizar_stock(evento["producto_id"], evento["disponibles"], evento["version"])
 
 
 def _vencer_reservas(detener: threading.Event, cada_segundos: float = 5) -> None:
@@ -44,6 +50,10 @@ def iniciar() -> threading.Event:
             (mensajeria.RESULTADOS_PAGO, "servicio-compras", _aplicar_resultado, detener),
         ),
         (_vencer_reservas, (detener,)),
+        (
+            mensajeria.consumir,
+            (mensajeria.CAMBIOS_STOCK, "proyector-catalogo", _proyectar_stock, detener),
+        ),
     ]
     for funcion, argumentos in tareas:
         threading.Thread(target=funcion, args=argumentos, daemon=True).start()

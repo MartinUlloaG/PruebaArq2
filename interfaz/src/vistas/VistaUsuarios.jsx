@@ -1,17 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import {
-  Activity,
-  AlertTriangle,
-  CheckCircle2,
-  DollarSign,
-  Package,
-  RefreshCw,
-  Search,
-  Shield,
-  ShoppingBag,
-  UserCheck,
-  Users,
-} from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { AlertTriangle, CheckCircle2, DollarSign, RefreshCw, Search, ShoppingBag, Users } from 'lucide-react'
 import { ROLES } from '../modelosVista/roles'
 import { formatearPrecio } from '../modelosVista/stock'
 import { useRecurso } from '../modelosVista/useRecurso'
@@ -46,17 +34,9 @@ export default function VistaUsuarios() {
     return Array.isArray(listaUsuarios) ? listaUsuarios : []
   }, [listaUsuarios])
 
-  // Métricas consolidadas (backend o cálculo derivado de respaldo)
-  const metricas = useMemo(() => {
-    if (metricasAdmin) return metricasAdmin
-    return {
-      total_usuarios: usuarios.length || 3,
-      total_pedidos: 6,
-      ingresos_totales: 289940,
-      stock_critico: 4,
-      total_productos: 60,
-    }
-  }, [metricasAdmin, usuarios])
+  // Métricas calculadas en el backend. Mientras no llegan se muestra "—", nunca un número inventado.
+  const metricas = metricasAdmin ?? {}
+  const valor = (n, formato = (x) => x) => (n === undefined ? '—' : formato(n))
 
   // Filtrado de usuarios
   const usuariosFiltrados = useMemo(() => {
@@ -108,10 +88,10 @@ export default function VistaUsuarios() {
               <DollarSign className="w-4 h-4 text-emerald-600" />
             </div>
             <p className="text-2xl sm:text-3xl font-black text-[#1e1e1e] tabular-nums">
-              {formatearPrecio(metricas.ingresos_totales)}
+              {valor(metricas.ingresos_totales, formatearPrecio)}
             </p>
             <span className="text-[10px] text-[#3d5a80]/70 uppercase tracking-wider block mt-1">
-              En transacciones confirmadas
+              Pedidos pagados
             </span>
           </div>
 
@@ -123,10 +103,10 @@ export default function VistaUsuarios() {
               <ShoppingBag className="w-4 h-4 text-[#3d5a80]" />
             </div>
             <p className="text-2xl sm:text-3xl font-black text-[#293241] tabular-nums">
-              {metricas.total_pedidos}
+              {valor(metricas.total_pedidos)}
             </p>
             <span className="text-[10px] text-[#3d5a80]/70 uppercase tracking-wider block mt-1">
-              Flujos Saga orquestados
+              Todos los estados
             </span>
           </div>
 
@@ -138,7 +118,7 @@ export default function VistaUsuarios() {
               <AlertTriangle className="w-4 h-4 text-[#ee6c4d]" />
             </div>
             <p className="text-2xl sm:text-3xl font-black text-[#ee6c4d] tabular-nums">
-              {metricas.stock_critico}
+              {valor(metricas.stock_critico)}
             </p>
             <span className="text-[10px] text-[#3d5a80]/70 uppercase tracking-wider block mt-1">
               Productos con ≤ 5 unidades
@@ -153,7 +133,7 @@ export default function VistaUsuarios() {
               <Users className="w-4 h-4 text-[#293241]" />
             </div>
             <p className="text-2xl sm:text-3xl font-black text-[#293241] tabular-nums">
-              {metricas.total_usuarios}
+              {valor(metricas.total_usuarios)}
             </p>
             <span className="text-[10px] text-[#3d5a80]/70 uppercase tracking-wider block mt-1">
               Seguridad Argon2id + JWT
@@ -257,7 +237,7 @@ export default function VistaUsuarios() {
                       <td className="py-4 px-4 text-right">
                         <span className="inline-flex items-center gap-1.5 text-[10px] font-mono text-emerald-800 bg-emerald-50 px-2 py-0.5 border border-emerald-200">
                           <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                          <span>Argon2id (HS256)</span>
+                          <span>Argon2id</span>
                         </span>
                       </td>
                     </tr>
@@ -268,32 +248,6 @@ export default function VistaUsuarios() {
           </table>
         </div>
 
-        {/* 5. Tarjeta de Gobernanza Arquitectónica de la Evaluación */}
-        <div className="p-6 bg-[#f4fbfb] border border-[#293241]/10 rounded-none">
-          <div className="flex items-center gap-2 mb-2">
-            <Shield className="w-4 h-4 text-[#293241]" />
-            <h3 className="text-xs uppercase tracking-[0.25em] font-black text-[#293241]">
-              Arquitectura de Seguridad y Tolerancia a Fallos
-            </h3>
-          </div>
-          <p className="text-xs text-[#3d5a80] font-light leading-relaxed mb-4">
-            Los 3 roles están aislados mediante JWT firmado en FastAPI con verificación en middleware. Cualquier intento de consumo directo a endpoints restringidos responde con código HTTP 403 y se audita en la base de datos relacional.
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-[10px] uppercase tracking-wider font-mono">
-            <div className="p-2.5 bg-white border border-[#293241]/10">
-              <span className="text-[#3d5a80] block">Autenticación</span>
-              <strong className="text-[#1e1e1e]">JWT HS256 + Argon2id</strong>
-            </div>
-            <div className="p-2.5 bg-white border border-[#293241]/10">
-              <span className="text-[#3d5a80] block">Concurrencia Stock</span>
-              <strong className="text-[#1e1e1e]">UPDATE Condicional ACID</strong>
-            </div>
-            <div className="p-2.5 bg-white border border-[#293241]/10">
-              <span className="text-[#3d5a80] block">Orquestación Saga</span>
-              <strong className="text-[#1e1e1e]">Outbox Pattern + Kafka</strong>
-            </div>
-          </div>
-        </div>
       </EstadoCarga>
     </div>
   )

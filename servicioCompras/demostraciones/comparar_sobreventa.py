@@ -91,7 +91,7 @@ def compra_optimista(producto_id: int, usuario_id: int) -> bool:
 def compra_del_sistema(producto_id: int, usuario_id: int) -> bool:
     with Sesion() as sesion:
         try:
-            compras.reservar(sesion, usuario_id, producto_id, 1)
+            compras.reservar(sesion, usuario_id, {producto_id: 1})
             sesion.commit()
             return True
         except compras.StockInsuficiente:

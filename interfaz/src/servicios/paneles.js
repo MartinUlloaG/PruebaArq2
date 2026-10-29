@@ -1,37 +1,24 @@
 import { pedir } from './clienteApi'
 
-// Operador y Administrador: listar inventario actual con stocks y categorías
+// Operador y Administrador: stock actual de cada producto.
 export function listarInventario() {
   return pedir('/inventario')
 }
 
-// Operador y Administrador: registrar ajustes o recepción de mercancía en tiempo real
-export function ajustarStock(productoId, cantidad, tipo = 'ajuste_entrada') {
+// Operador y Administrador: recepción (ajuste_entrada) o merma (ajuste_salida).
+export function ajustarStock(productoId, cantidad, tipo) {
   return pedir(`/inventario/${productoId}`, {
     metodo: 'PATCH',
-    cuerpo: {
-      cantidad: Number(cantidad),
-      tipo,
-    },
-  }).catch(() => {
-    // Fallback retrocompatible por si el backend recibe POST /inventario/ajuste
-    return pedir('/inventario/ajuste', {
-      metodo: 'POST',
-      cuerpo: {
-        producto_id: Number(productoId),
-        cantidad: Number(cantidad),
-        tipo,
-      },
-    })
+    cuerpo: { cantidad: Number(cantidad), tipo },
   })
 }
 
-// Solo Administrador: listar usuarios registrados
+// Solo Administrador: cuentas registradas.
 export function listarUsuarios() {
   return pedir('/administracion/usuarios')
 }
 
-// Solo Administrador: métricas de negocio ejecutivas (pedidos, ingresos, stock crítico)
+// Solo Administrador: totales de pedidos, ingresos y stock crítico.
 export function obtenerResumenAdmin() {
   return pedir('/administracion/resumen')
 }

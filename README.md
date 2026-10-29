@@ -1,12 +1,15 @@
 # Tienda Arquitectura de Software - Eva 2
 
 Son 4 partes:
-- servicioCompras: el backend (FastAPI + PostgreSQL)
+- servicioCompras: el backend (FastAPI + PostgreSQL + MongoDB)
 - servicioPagos: lee los pagos desde Kafka y cobra en la pasarela
 - pasarelaSimulada: la pasarela de pago, corre aparte en el puerto 8001
 - interfaz: el front (React + Vite + Zustand)
 
 servicioRecomendaciones todavía no está terminado.
+
+Postgres guarda el stock, los pedidos y los pagos. Mongo guarda el catálogo que ve el cliente
+(categoría, tallas, colores, material). Cada cambio de stock pasa por Kafka y se copia a Mongo.
 
 ## Versiones
 
@@ -24,7 +27,7 @@ copy .env.ejemplo .env
 notepad .env
 ```
 
-Levantar la base de datos y Kafka:
+Levantar Postgres, Kafka y Mongo:
 
 ```bat
 docker compose up -d
@@ -41,7 +44,12 @@ alembic upgrade head
 python -m app.infraestructura.semilla
 ```
 
-La semilla se puede correr varias veces, no duplica nada.
+La semilla llena las dos bases: usuarios, 34 prendas y pedidos de ejemplo. Se puede correr varias
+veces, no duplica nada. Para partir de cero (por ej. antes de grabar el video):
+
+```bat
+python -m app.infraestructura.semilla --reiniciar
+```
 
 Instalar el front:
 
@@ -54,7 +62,7 @@ npm install
 
 Cada servicio en una sola consola
 
-con Docker Desktop abierto en C:\comercio: `docker compose up -d` (levanta Postgres y Kafka)
+con Docker Desktop abierto en C:\comercio: `docker compose up -d` (levanta Postgres, Kafka y Mongo)
 
 Consola 1 - backend (queda en http://127.0.0.1:8000)
 
@@ -117,6 +125,9 @@ cd C:\comercio\servicioCompras
 .venv\Scripts\activate
 python -m pytest
 ```
+
+Ojo: las pruebas de Kafka se corren con el backend y el servicio de pagos apagados, porque usan
+los mismos grupos de Kafka y se roban los mensajes.
 
 Las más importantes:
 - test_pedidos.py: 100 compras al mismo tiempo de un producto con stock 1 y solo 1 se acepta

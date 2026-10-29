@@ -29,6 +29,10 @@ class Configuracion(BaseSettings):
     # TTL de la reserva: si el pago no se resuelve en este tiempo, el stock vuelve.
     segundos_reserva: int = 60
 
+    # MongoDB: el catálogo que se le muestra al cliente (lado de lectura de CQRS).
+    mongo_url: str = "mongodb://127.0.0.1:27017"
+    mongo_db: str = "tienda"
+
     # Servicios satélite (procesos aparte). El tiempo límite es corto a propósito.
     recomendaciones_url: str = "http://127.0.0.1:8002"
     recomendaciones_segundos_limite: float = 1

@@ -44,24 +44,34 @@ class StockInsuficiente(ErrorCompra):
     pass
 
 
-def reservar(sesion: Session, usuario_id: int, producto_id: int, cantidad: int) -> Pedido:
-    """Reserva el stock. Quien llama confirma (commit); si se lanza una excepción, no queda nada."""
-    producto = RepositorioProductos(sesion).buscar_activo(producto_id)
-    if producto is None:
-        raise ProductoNoDisponible("El producto no existe o no está a la venta.")
+def reservar(sesion: Session, usuario_id: int, items: dict[int, int]) -> Pedido:
+    """Reserva el stock de todo el carrito ({producto_id: cantidad}) en una transacción.
 
-    pedido = RepositorioPedidos(sesion).crear(
-        usuario_id, producto, cantidad, estado="stock_reservado"
-    )
-    if RepositorioInventario(sesion).reservar(producto_id, cantidad, pedido.id) is None:
-        raise StockInsuficiente("No queda stock suficiente de este producto.")
+    O se reservan todos los productos o ninguno: si uno no alcanza, se lanza la excepción
+    y quien llama hace rollback. Quien llama confirma (commit).
+    Se reserva en orden de producto_id: si dos carritos comparten productos, los dos
+    bloquean las filas en el mismo orden y no se pueden trabar entre ellos (deadlock).
+    """
+    productos = RepositorioProductos(sesion)
+    lineas = []
+    for producto_id in sorted(items):
+        producto = productos.buscar_activo(producto_id)
+        if producto is None:
+            raise ProductoNoDisponible("Un producto del carrito no existe o ya no está a la venta.")
+        lineas.append((producto, items[producto_id]))
+
+    pedido = RepositorioPedidos(sesion).crear(usuario_id, lineas, estado="stock_reservado")
+    inventario = RepositorioInventario(sesion)
+    for producto, cantidad in lineas:
+        if inventario.reservar(producto.id, cantidad, pedido.id) is None:
+            raise StockInsuficiente(f"No queda stock suficiente de {producto.nombre}.")
     return pedido
 
 
-def iniciar_compra(sesion: Session, usuario_id: int, producto_id: int, cantidad: int) -> Pedido:
+def iniciar_compra(sesion: Session, usuario_id: int, items: dict[int, int]) -> Pedido:
     """Paso 1 de la Saga. Devuelve el pedido con el stock reservado y el pago en camino."""
     try:
-        pedido = reservar(sesion, usuario_id, producto_id, cantidad)
+        pedido = reservar(sesion, usuario_id, items)
     except ErrorCompra:
         sesion.rollback()  # no queda ni el pedido ni el descuento
         raise

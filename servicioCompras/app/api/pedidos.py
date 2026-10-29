@@ -5,7 +5,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from app.api.dependencias import UsuarioActual, obtener_sesion, requerir_rol
@@ -23,9 +23,22 @@ CODIGOS_ERROR = {
 }
 
 
-class SolicitudCompra(BaseModel):
+class ItemSolicitud(BaseModel):
     producto_id: int = Field(gt=0)
     cantidad: int = Field(ge=1, le=compras.MAXIMO_POR_COMPRA)
+
+
+class SolicitudCompra(BaseModel):
+    """El carrito: uno o más productos distintos."""
+
+    items: list[ItemSolicitud] = Field(min_length=1, max_length=20)
+
+    @field_validator("items")
+    @classmethod
+    def sin_repetidos(cls, items: list[ItemSolicitud]) -> list[ItemSolicitud]:
+        if len({i.producto_id for i in items}) != len(items):
+            raise ValueError("Un producto aparece dos veces en el carrito.")
+        return items
 
 
 class ItemRespuesta(BaseModel):
@@ -94,7 +107,8 @@ def comprar(
         return JSONResponse(previa.cuerpo_respuesta, status_code=previa.codigo_respuesta)
 
     try:
-        pedido = compras.iniciar_compra(sesion, usuario.id, solicitud.producto_id, solicitud.cantidad)
+        items = {i.producto_id: i.cantidad for i in solicitud.items}
+        pedido = compras.iniciar_compra(sesion, usuario.id, items)
         codigo, cuerpo = status.HTTP_202_ACCEPTED, _a_respuesta(pedido).model_dump(mode="json")
     except compras.ErrorCompra as error:
         codigo, cuerpo = CODIGOS_ERROR[type(error)], {"detail": str(error)}
