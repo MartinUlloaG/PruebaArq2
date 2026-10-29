@@ -170,6 +170,12 @@ interfaz/src/servicios               las llamadas a la API
 
 - El token de sesión dura 30 minutos.
 
+## Ver Kafka
+
+Kafka UI queda en http://127.0.0.1:8080 (lo levanta el docker compose). Ahí se ven los tópicos
+(pagos.solicitudes, pagos.resultados, pagos.muertos, catalogo.stock, pedidos.pagados), cada mensaje
+y los grupos de consumidores.
+
 ## Atajos
 
 - Levantar tienda.bat: abre todas las consolas de arriba.

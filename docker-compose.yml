@@ -18,20 +18,36 @@ services:
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      # PLAINTEXT: para los servicios en Windows. INTERNA: para otros contenedores (Kafka UI).
+      KAFKA_LISTENERS: PLAINTEXT://:9092,INTERNA://:29092,CONTROLLER://:9093
       # 127.0.0.1 y no localhost, por lo mismo que con Postgres (Windows prueba IPv6 primero)
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://127.0.0.1:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://127.0.0.1:9092,INTERNA://kafka:29092
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNA
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,INTERNA:PLAINTEXT
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # Los mensajes se guardan en el volumen: si se reinicia el contenedor no se pierden.
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
     ports:
       - "127.0.0.1:9092:9092"
     volumes:
       - datos_kafka:/var/lib/kafka/data
+
+  # Para VER Kafka en el navegador (http://127.0.0.1:8080): tópicos, mensajes y grupos.
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    restart: unless-stopped
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_CLUSTERS_0_NAME: tienda
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+    ports:
+      - "127.0.0.1:8080:8080"
 
   # Catálogo (modelo de lectura de CQRS): documentos con categoría y atributos de cada prenda.
   mongo:
