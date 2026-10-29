@@ -1,9 +1,10 @@
+import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [tailwindcss(), react()],
   server: {
     // /api/... se reenvía al servicio de compras: el navegador ve un solo origen y no hace falta CORS.
     proxy: {
