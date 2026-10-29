@@ -9,6 +9,12 @@ export const ROLES = {
 
 export const SECCIONES = [
   {
+    ruta: '/catalogo',
+    nombre: 'Catálogo',
+    descripcion: 'Colección de prendas y accesorios.',
+    roles: ['cliente'],
+  },
+  {
     ruta: '/pedidos',
     nombre: 'Mis pedidos',
     descripcion: 'Tus compras y en qué estado van.',

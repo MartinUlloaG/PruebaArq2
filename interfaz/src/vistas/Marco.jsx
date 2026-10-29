@@ -1,10 +1,9 @@
 import { useEffect, useRef } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-
+import { LogOut, User } from 'lucide-react'
 import { ROLES, seccionesPara } from '../modelosVista/roles'
 import { useSesion } from '../modelosVista/useSesion'
 
-// Estructura común de las páginas con sesión: encabezado, navegación según rol y contenido.
 export default function Marco() {
   const usuario = useSesion((s) => s.usuario)
   const expiraEn = useSesion((s) => s.expiraEn)
@@ -13,7 +12,6 @@ export default function Marco() {
   const refContenido = useRef(null)
   const primeraVez = useRef(true)
 
-  // Al cambiar de página, el foco va al contenido: el lector de pantalla no queda perdido arriba.
   useEffect(() => {
     if (primeraVez.current) {
       primeraVez.current = false
@@ -22,45 +20,151 @@ export default function Marco() {
     refContenido.current?.focus()
   }, [pathname])
 
-  // Cierra la sesión justo cuando vence el token, sin esperar a que la API responda 401.
   useEffect(() => {
     const temporizador = setTimeout(
       () => salir('Tu sesión expiró por seguridad. Vuelve a ingresar para continuar.'),
-      Math.max(expiraEn - Date.now(), 0),
+      Math.max(expiraEn - Date.now(), 0)
     )
     return () => clearTimeout(temporizador)
   }, [expiraEn, salir])
 
   return (
-    <div className="marco">
-      <a className="saltar" href="#contenido">
+    <div className="min-h-screen flex flex-col bg-white text-[#1e1e1e]">
+      <a
+        className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-[#293241] focus:text-white focus:text-xs focus:uppercase focus:tracking-widest"
+        href="#contenido"
+      >
         Saltar al contenido
       </a>
-      <header className="marco__encabezado">
-        <NavLink to="/" className="marca" aria-label="Tienda Arquitectura de Software, ir al inicio">
-          Tienda Arquitectura de Software
-        </NavLink>
-        <nav aria-label="Secciones" className="marco__nav">
-          <NavLink to="/" end>
-            Inicio
+
+      {/* Navbar Editorial KYRO (#293241 Navy) */}
+      <header className="sticky top-0 z-40 bg-[#293241] text-white border-b border-white/10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-8 h-20 flex items-center justify-between gap-6">
+          
+          {/* Logo KYRO */}
+          <NavLink
+            to="/"
+            className="flex items-center gap-2 group tracking-tighter"
+            aria-label="KYRO inicio"
+          >
+            <span className="text-2xl md:text-3xl font-black text-white tracking-widest uppercase transition-opacity group-hover:opacity-80">
+              KYRO
+            </span>
+            <span className="w-1.5 h-1.5 rounded-full bg-[#ee6c4d]" />
           </NavLink>
-          {seccionesPara(usuario.rol).map((s) => (
-            <NavLink key={s.ruta} to={s.ruta}>
-              {s.nombre}
+
+          {/* Enlaces de Navegación */}
+          <nav aria-label="Navegación principal" className="hidden sm:flex items-center gap-1 md:gap-2">
+            <NavLink
+              to="/"
+              end
+              className={({ isActive }) =>
+                `px-3 py-2 text-xs uppercase tracking-[0.2em] font-semibold transition-colors ${
+                  isActive
+                    ? 'text-white border-b-2 border-[#ee6c4d]'
+                    : 'text-[#e0fbfc]/80 hover:text-white'
+                }`
+              }
+            >
+              Inicio
             </NavLink>
-          ))}
-        </nav>
-        <div className="marco__cuenta">
-          <span className="marco__correo">{usuario.correo}</span>
-          <span className={`etiqueta-rol etiqueta-rol--${usuario.rol}`}>{ROLES[usuario.rol].nombre}</span>
-          <button type="button" className="boton-secundario" onClick={() => salir()}>
-            Cerrar sesión
-          </button>
+
+            {seccionesPara(usuario.rol).map((s) => (
+              <NavLink
+                key={s.ruta}
+                to={s.ruta}
+                className={({ isActive }) =>
+                  `px-3 py-2 text-xs uppercase tracking-[0.2em] font-semibold transition-colors ${
+                    isActive
+                      ? 'text-white border-b-2 border-[#ee6c4d]'
+                      : 'text-[#e0fbfc]/80 hover:text-white'
+                  }`
+                }
+              >
+                {s.nombre}
+              </NavLink>
+            ))}
+          </nav>
+
+          {/* Cuenta de Usuario & Salir */}
+          <div className="flex items-center gap-3">
+            <div className="hidden lg:flex items-center gap-2 text-right">
+              <span className="text-[11px] uppercase tracking-wider text-[#e0fbfc]/80 font-mono">
+                {usuario.correo}
+              </span>
+              <span className="text-[9px] uppercase tracking-widest font-bold px-2 py-0.5 border border-[#ee6c4d] text-[#ee6c4d]">
+                {ROLES[usuario.rol].nombre}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => salir()}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-white/20 hover:border-white text-[11px] uppercase tracking-wider font-semibold text-white transition-colors"
+              title="Cerrar sesión"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Salir</span>
+            </button>
+          </div>
         </div>
       </header>
-      <main id="contenido" ref={refContenido} tabIndex={-1} className="marco__contenido">
+
+      {/* Contenedor Principal */}
+      <main id="contenido" ref={refContenido} tabIndex={-1} className="flex-1 focus:outline-none">
         <Outlet />
       </main>
+
+      {/* Footer Editorial KYRO (#293241 Navy) */}
+      <footer className="border-t border-[#293241]/10 bg-[#293241] text-[#e0fbfc] py-16 px-4 sm:px-6 md:px-8 mt-24">
+        <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-12 text-xs">
+          <div>
+            <h4 className="text-xl font-black text-white uppercase tracking-widest mb-3">
+              KYRO
+            </h4>
+            <p className="text-[11px] tracking-wider text-[#e0fbfc]/70 uppercase font-light leading-relaxed">
+              Marca de moda minimalista de alta gama. Confección en tejidos pesados de silueta pura.
+            </p>
+          </div>
+
+          <div>
+            <h5 className="text-xs uppercase tracking-[0.25em] font-bold text-white mb-3">
+              Líneas
+            </h5>
+            <ul className="space-y-2 uppercase tracking-wider text-[#e0fbfc]/80">
+              <li>Polerones Heavyweight</li>
+              <li>Poleras Essential Boxy</li>
+              <li>Calcetines High-Gauge</li>
+              <li>Gorras Cotton Twill</li>
+              <li>Blusas Lino Nórdico</li>
+            </ul>
+          </div>
+
+          <div>
+            <h5 className="text-xs uppercase tracking-[0.25em] font-bold text-white mb-3">
+              Arquitectura
+            </h5>
+            <ul className="space-y-2 uppercase tracking-wider text-[#e0fbfc]/80">
+              <li>Patrón Estricto MVVM</li>
+              <li>React 19 + Zustand</li>
+              <li>FastAPI + PostgreSQL</li>
+              <li>Saga Pattern con Kafka</li>
+            </ul>
+          </div>
+
+          <div>
+            <h5 className="text-xs uppercase tracking-[0.25em] font-bold text-white mb-3">
+              Garantía de Edición
+            </h5>
+            <p className="text-[11px] tracking-wider text-[#e0fbfc]/70 uppercase font-light leading-relaxed mb-4">
+              Cada prenda se numera y produce en tirajes limitados con algodón orgánico trazable.
+            </p>
+            <span className="text-[10px] uppercase tracking-widest font-bold text-[#ee6c4d]">
+              KYRO STUDIO © 2026. TODOS LOS DERECHOS RESERVADOS.
+            </span>
+          </div>
+        </div>
+      </footer>
     </div>
   )
 }

@@ -3,7 +3,8 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import Marco from './vistas/Marco'
 import RutaProtegida from './vistas/RutaProtegida'
 import VistaIngreso from './vistas/VistaIngreso'
-import VistaInicio from './vistas/VistaInicio'
+import Inicio from './vistas/Inicio'
+import Catalogo from './vistas/Catalogo'
 import VistaInventario from './vistas/VistaInventario'
 import VistaPedidos from './vistas/VistaPedidos'
 import VistaUsuarios from './vistas/VistaUsuarios'
@@ -19,7 +20,15 @@ export default function App() {
           </RutaProtegida>
         }
       >
-        <Route index element={<VistaInicio />} />
+        <Route index element={<Inicio />} />
+        <Route
+          path="catalogo"
+          element={
+            <RutaProtegida roles={['cliente']}>
+              <Catalogo />
+            </RutaProtegida>
+          }
+        />
         <Route
           path="pedidos"
           element={
