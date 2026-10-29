@@ -10,7 +10,7 @@ from app.infraestructura.repositorios import RepositorioInventario
 enrutador = APIRouter(
     prefix="/catalogo",
     tags=["catálogo"],
-    dependencies=[Depends(usuario_actual)],  # basta con tener sesión, sin importar el rol
+    dependencies=[Depends(usuario_actual)],  
 )
 
 
@@ -18,7 +18,7 @@ class ProductoCatalogo(BaseModel):
     producto_id: int
     nombre: str
     descripcion: str | None
-    precio: int  # pesos chilenos, sin decimales
+    precio: int  
     disponibles: int
 
 
