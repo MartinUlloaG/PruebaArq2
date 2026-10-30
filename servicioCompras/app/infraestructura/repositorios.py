@@ -1,8 +1,3 @@
-"""Patrón Repository: el único lugar que sabe cómo se consultan las tablas.
-
-Los endpoints piden datos al repositorio; no escriben SQL ni conocen las consultas.
-"""
-
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import case, func, select, update
@@ -29,8 +24,16 @@ class RepositorioUsuarios:
     def __init__(self, sesion: Session):
         self.sesion = sesion
 
-    def buscar_por_correo(self, correo: str) -> Usuario | None:
-        return self.sesion.scalar(select(Usuario).where(Usuario.correo == correo))
+    def buscar_por_correo(self, correo: str, para_actualizar: bool = False) -> Usuario | None:
+        """para_actualizar bloquea la fila (FOR UPDATE): si llegan varios intentos de login
+        a la vez para la misma cuenta, se atienden de a uno y el contador no se pierde."""
+        consulta = select(Usuario).where(Usuario.correo == correo)
+        if para_actualizar:
+            # NO KEY UPDATE y no UPDATE: crear un pedido toma un candado "key share" sobre
+            # su usuario (por la clave foránea), y FOR UPDATE choca con él. En un Cyberday
+            # el login de alguien quedaba esperando a que terminaran sus compras en fila.
+            consulta = consulta.with_for_update(key_share=True)
+        return self.sesion.scalar(consulta)
 
     def listar(self) -> list[Usuario]:
         return list(self.sesion.scalars(select(Usuario).order_by(Usuario.id)))
@@ -77,14 +80,12 @@ class RepositorioInventario:
             )
         )
 
-    def reservar(self, producto_id: int, cantidad: int, pedido_id: int) -> int | None:
-        """Descuenta stock solo si alcanza, y deja el movimiento "reserva" en la auditoría.
+    def disponibles(self, producto_id: int) -> int:
+        """Lectura sin bloqueo. Sirve para cortar rápido si ya está agotado; la garantía
+        contra la sobreventa sigue siendo el UPDATE condicional de reservar()."""
+        return self.sesion.scalar(select(Inventario.cantidad).where(Inventario.producto_id == producto_id)) or 0
 
-        UPDATE condicional: la condición (cantidad >= n) se evalúa en la misma instrucción
-        que escribe. Si dos compras llegan juntas, Postgres bloquea la fila; la segunda
-        espera y vuelve a evaluar la condición con el stock ya descontado.
-        Devuelve el stock que queda, o None si no alcanzaba (no se tocó nada).
-        """
+    def reservar(self, producto_id: int, cantidad: int, pedido_id: int) -> int | None:
         restante = self.sesion.scalar(
             update(Inventario)
             .where(Inventario.producto_id == producto_id, Inventario.cantidad >= cantidad)
@@ -195,7 +196,7 @@ class RepositorioPedidos:
         consulta = (
             select(Pedido)
             .where(Pedido.usuario_id == usuario_id)
-            .options(selectinload(Pedido.items).selectinload(ItemPedido.producto))
+            .options(selectinload(Pedido.items).selectinload(ItemPedido.producto), selectinload(Pedido.pago))
             .order_by(Pedido.id.desc())
         )
         return list(self.sesion.scalars(consulta))
@@ -214,10 +215,21 @@ class RepositorioPagos:
     def __init__(self, sesion: Session):
         self.sesion = sesion
 
-    def registrar(self, pedido_id: int, monto: int, estado: str, referencia: str | None) -> Pago:
+    def registrar(self, pedido_id: int, monto: int, estado: str, referencia: str | None = None) -> Pago:
         pago = Pago(pedido_id=pedido_id, monto=monto, estado=estado, referencia_pasarela=referencia)
         self.sesion.add(pago)
         return pago
+
+    def de_pedido(self, pedido_id: int) -> Pago | None:
+        return self.sesion.scalar(select(Pago).where(Pago.pedido_id == pedido_id))
+
+    def pedido_del_token(self, token: str, usuario_id: int) -> int | None:
+        """Pedido al que pertenece la transacción, solo si es de este usuario."""
+        return self.sesion.scalar(
+            select(Pago.pedido_id)
+            .join(Pedido, Pedido.id == Pago.pedido_id)
+            .where(Pago.token_pasarela == token, Pedido.usuario_id == usuario_id)
+        )
 
 
 class RepositorioIdempotencia:

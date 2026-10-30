@@ -7,6 +7,7 @@ import Inicio from './vistas/Inicio'
 import Catalogo from './vistas/Catalogo'
 import VistaInventario from './vistas/VistaInventario'
 import VistaPedidos from './vistas/VistaPedidos'
+import VistaRetornoPago from './vistas/VistaRetornoPago'
 import VistaUsuarios from './vistas/VistaUsuarios'
 
 export default function App() {
@@ -34,6 +35,14 @@ export default function App() {
           element={
             <RutaProtegida roles={['cliente']}>
               <VistaPedidos />
+            </RutaProtegida>
+          }
+        />
+        <Route
+          path="pago/retorno"
+          element={
+            <RutaProtegida roles={['cliente']}>
+              <VistaRetornoPago />
             </RutaProtegida>
           }
         />

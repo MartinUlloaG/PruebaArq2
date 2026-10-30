@@ -165,7 +165,7 @@ def test_la_reserva_vence_si_el_pago_no_llega(crear_producto):
     with Sesion() as sesion:
         compras.expirar_reservas(sesion, segundos=60)
 
-    assert estado_pedido_y_pago(pedido_id) == ("fallido", None)
+    assert estado_pedido_y_pago(pedido_id) == ("fallido", "rechazado")  # el pago queda con su motivo
     assert stock_y_saldo(producto_id) == (3, 3)
 
 
@@ -180,7 +180,7 @@ def test_un_cobro_que_llega_tarde_va_a_la_dlq(crear_producto):
 
     _aplicar(_resultado(pedido_id, autorizado=True))
 
-    assert estado_pedido_y_pago(pedido_id) == ("fallido", None)  # no revive el pedido
+    assert estado_pedido_y_pago(pedido_id) == ("fallido", "rechazado")  # el pago queda con su motivo  # no revive el pedido
     assert stock_y_saldo(producto_id) == (3, 3)
     [muerto] = mensajes_outbox(pedido_id, mensajeria.MUERTOS)
     assert muerto["evento"]["pedido_id"] == pedido_id

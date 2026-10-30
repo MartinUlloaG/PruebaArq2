@@ -9,11 +9,9 @@ from app.configuracion import configuracion
 
 ALGORITMO = "HS256"
 
-# Argon2id con los parámetros recomendados por pwdlib.
 hasheador = PasswordHash.recommended()
 
-# Se verifica contra este hash cuando el correo no existe, para que la respuesta
-# tarde lo mismo y el tiempo no delate qué correos están registrados.
+
 HASH_FICTICIO = hasheador.hash("clave-ficticia-para-igualar-tiempos")
 
 

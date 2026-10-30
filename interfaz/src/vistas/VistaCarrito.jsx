@@ -23,8 +23,8 @@ export default function VistaCarrito({ alTerminar = () => {} }) {
   const total = useCarrito(seleccionarTotal)
   const navegar = useNavigate()
 
-  // ViewModel de la compra: el carrito se vacía solo si el pago se aprobó.
-  const { etapa, resultado, comprar } = useCompra(() => limpiarCarrito())
+  // ViewModel de la compra: reserva y manda a la pasarela. El carrito se vacía al volver, si se pagó.
+  const { etapa, resultado, comprar } = useCompra()
   const procesando = etapa !== null
 
   if (!abierto) return null
@@ -67,7 +67,14 @@ export default function VistaCarrito({ alTerminar = () => {} }) {
           {procesando && (
             <p className="flex items-center gap-3 mx-6 mt-4 p-3 text-xs bg-[#f4fbfb] border-l-2 border-[#293241]">
               <Clock className="w-4 h-4 flex-shrink-0" />
-              {etapa === 'reservando' ? 'Reservando el stock…' : 'Esperando la respuesta del pago…'}
+              {
+                {
+                  reservando: 'Reservando el stock…',
+                  en_fila: 'Hay mucha demanda: estás en la fila, reintentando…',
+                  conectando: 'Stock reservado. Conectando con la pasarela de pago…',
+                  redirigiendo: 'Te estamos llevando a la pasarela de pago…',
+                }[etapa]
+              }
             </p>
           )}
           {resultado && (
@@ -170,7 +177,7 @@ export default function VistaCarrito({ alTerminar = () => {} }) {
                 disabled={procesando}
                 className="py-3.5 px-4 bg-[#ee6c4d] hover:bg-[#d95b3d] text-white text-xs uppercase tracking-[0.25em] font-black flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
               >
-                <span>{procesando ? 'Procesando…' : 'Pagar'}</span>
+                <span>{procesando ? 'Procesando…' : 'Ir a pagar'}</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </div>

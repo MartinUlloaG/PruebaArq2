@@ -1,60 +1,68 @@
-// ViewModel de la compra del carrito: en qué etapa va y cómo terminó.
 import { useState } from 'react'
 
 import { comprar as comprarEnApi, obtenerPedido } from '../servicios/pedidos'
-import { formatearPrecio } from './stock'
 
-// El pago viaja por Kafka y se resuelve después: se consulta el pedido cada segundo.
-const ESPERA_MS = 1000
-const MAXIMO_CONSULTAS = 20
+// La transacción en la pasarela se crea por Kafka (servicio de pagos): se consulta el
+// pedido hasta que aparece la URL donde se paga.
+const ESPERA_MS = 700
+const MAXIMO_CONSULTAS = 30
+// Con mucha demanda la tienda responde 503 (load shedding): se reintenta con la MISMA
+// clave de idempotencia, así un reintento nunca crea un segundo pedido.
+const MAXIMO_REINTENTOS = 10
 
 const pausa = (ms) => new Promise((listo) => setTimeout(listo, ms))
 
-async function esperarPago(pedidoId) {
+async function esperarUrlDePago(pedidoId) {
   for (let i = 0; i < MAXIMO_CONSULTAS; i++) {
     await pausa(ESPERA_MS)
     const pedido = await obtenerPedido(pedidoId)
-    if (pedido.estado !== 'stock_reservado') return pedido
+    if (pedido.pago?.url_pago || pedido.estado !== 'stock_reservado') return pedido
   }
-  return null // sigue en proceso
+  return null // la pasarela no respondió a tiempo
 }
 
-// `alPagar` se llama solo si el pago se aprobó (ahí se vacía el carrito).
-export function useCompra(alPagar) {
-  const [etapa, setEtapa] = useState(null) // null | 'reservando' | 'pagando'
-  const [resultado, setResultado] = useState(null) // { tipo: 'exito' | 'error' | 'aviso', texto }
+async function reservar(items, clave, alEsperar) {
+  for (let intento = 1; ; intento++) {
+    try {
+      return await comprarEnApi(items, clave)
+    } catch (error) {
+      if (error.estado !== 503 || intento === MAXIMO_REINTENTOS) throw error
+      alEsperar()
+      await pausa(2000 + Math.random() * 1000)
+    }
+  }
+}
+
+export function useCompra() {
+  const [etapa, setEtapa] = useState(null) 
+  const [resultado, setResultado] = useState(null) 
 
   async function comprar(items) {
     if (items.length === 0) return
     setEtapa('reservando')
     setResultado(null)
     try {
-      // Una clave nueva por cada clic en Pagar (crypto.randomUUID existe en localhost y HTTPS).
-      const reservado = await comprarEnApi(items, crypto.randomUUID())
-      setEtapa('pagando')
-      const pedido = await esperarPago(reservado.pedido_id)
-      if (pedido === null) {
-        setResultado({
-          tipo: 'aviso',
-          texto: `Pedido #${reservado.pedido_id}: el pago se está demorando. Revisa Mis pedidos en un rato.`,
-        })
-      } else if (pedido.estado === 'pagado') {
-        setResultado({
-          tipo: 'exito',
-          texto: `Pedido #${pedido.pedido_id} pagado por ${formatearPrecio(pedido.total)}.`,
-        })
-        alPagar(pedido)
-      } else {
-        setResultado({
-          tipo: 'error',
-          texto: `El pago del pedido #${pedido.pedido_id} no se pudo completar. El stock quedó libre.`,
-        })
+      
+      const reservado = await reservar(items, crypto.randomUUID(), () => setEtapa('en_fila'))
+      setEtapa('conectando')
+      const pedido = await esperarUrlDePago(reservado.pedido_id)
+      if (pedido?.pago?.url_pago) {
+        setEtapa('redirigiendo')
+        window.location.assign(pedido.pago.url_pago) 
+        return
       }
+      setResultado(
+        pedido === null
+          ? {
+              tipo: 'aviso',
+              texto: `Pedido #${reservado.pedido_id}: la pasarela de pago no responde. Tu stock queda reservado unos minutos; intenta pagar desde Mis pedidos.`,
+            }
+          : { tipo: 'error', texto: `No se pudo iniciar el pago del pedido #${pedido.pedido_id}. El stock quedó libre.` },
+      )
     } catch (error) {
       setResultado({ tipo: 'error', texto: error.message })
-    } finally {
-      setEtapa(null)
     }
+    setEtapa(null)
   }
 
   return { etapa, resultado, comprar, limpiarResultado: () => setResultado(null) }

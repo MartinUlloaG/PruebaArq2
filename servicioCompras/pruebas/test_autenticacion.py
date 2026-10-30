@@ -4,13 +4,17 @@ Prueba de cierre: un cliente recibe 403 en rutas de operador y de administrador.
 Requiere la BD arriba y migrada; la semilla crea los usuarios de demo.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 import jwt
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import update
 
 from app.configuracion import configuracion
+from app.infraestructura.base import Sesion
+from app.infraestructura.modelos import Usuario
 from app.infraestructura.semilla import USUARIOS_DEMO, sembrar
 from app.principal import app
 
@@ -130,3 +134,44 @@ def test_el_catalogo_lo_ve_cualquier_rol_con_sesion(rol):
 
 def test_el_catalogo_sin_sesion_es_401():
     assert cliente_http.get("/catalogo").status_code == 401
+
+
+# --- Bloqueo por intentos fallidos ---------------------------------------------
+
+CUENTA_BLOQUEO = "cliente98@demo.cl"  # una cuenta aparte, para no bloquear la que usan las otras pruebas
+
+
+@pytest.fixture
+def cuenta_sin_bloqueo():
+    def desbloquear():
+        with Sesion.begin() as sesion:
+            sesion.execute(
+                update(Usuario).where(Usuario.correo == CUENTA_BLOQUEO).values(intentos_fallidos=0, bloqueado_hasta=None)
+            )
+
+    desbloquear()
+    yield
+    desbloquear()
+
+
+def _ingresar(clave: str):
+    return cliente_http.post("/autenticacion/ingresar", json={"correo": CUENTA_BLOQUEO, "clave": clave})
+
+
+def test_3_claves_malas_bloquean_y_no_entregan_jwt_ni_con_la_buena(cuenta_sin_bloqueo):
+    _, clave_buena = CLAVES["cliente"]
+    codigos = [_ingresar("mala").status_code for _ in range(3)]
+    assert codigos == [401, 401, 423]
+
+    con_la_buena = _ingresar(clave_buena)
+    assert con_la_buena.status_code == 423
+    assert "token_acceso" not in con_la_buena.json()
+    assert int(con_la_buena.headers["Retry-After"]) > 0
+
+
+def test_intentos_simultaneos_se_cuentan_de_a_uno(cuenta_sin_bloqueo):
+    """5 intentos malos a la vez: la fila se bloquea (FOR UPDATE), así que se cuentan en
+    orden y ninguno se pierde: 2 reciben 401 y desde el tercero, 423."""
+    with ThreadPoolExecutor(max_workers=5) as hilos:
+        codigos = sorted(hilos.map(lambda _: _ingresar("mala").status_code, range(5)))
+    assert codigos == [401, 401, 423, 423, 423]

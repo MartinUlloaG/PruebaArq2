@@ -257,6 +257,9 @@ export default function VistaIngreso() {
               <span>{cargando ? 'Autenticando...' : 'Iniciar Sesión'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
+            <p className="text-[11px] text-[#3d5a80] tracking-wide text-center">
+              Por seguridad, después de 3 intentos fallidos la cuenta se bloquea por 5 minutos.
+            </p>
           </form>
 
           {/* Accesos de prueba rápida para la evaluación */}

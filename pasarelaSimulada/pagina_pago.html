@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PagoSim · Pago seguro</title>
+<style>
+  :root { --tinta:#14213d; --suave:#5c677d; --linea:#dde1e7; --fondo:#f3f5f8; --acento:#0f766e; --error:#b42318; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background:var(--fondo); color:var(--tinta); }
+  header { background:var(--tinta); color:#fff; padding:14px 24px; display:flex; justify-content:space-between; align-items:center; }
+  header strong { font-size:18px; letter-spacing:.5px; }
+  header span { font-size:12px; opacity:.75; }
+  .aviso-prueba { background:#fff7e6; color:#8a5a00; text-align:center; font-size:12px; padding:6px; border-bottom:1px solid #f1d9a8; }
+  main { max-width:880px; margin:28px auto; padding:0 16px; display:grid; grid-template-columns: 280px 1fr; gap:20px; }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+  .caja { background:#fff; border:1px solid var(--linea); border-radius:10px; padding:22px; }
+  .resumen dt { font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--suave); margin-top:14px; }
+  .resumen dd { margin:4px 0 0; font-size:15px; font-weight:600; }
+  .monto { font-size:28px !important; }
+  .reloj { margin-top:18px; padding:10px; border-radius:8px; background:var(--fondo); font-size:13px; text-align:center; }
+  .reloj.urgente { background:#fdecea; color:var(--error); }
+  .pestanas { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:20px; }
+  .pestanas button { padding:12px; border:1px solid var(--linea); background:#fff; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; color:var(--suave); }
+  .pestanas button[aria-selected="true"] { border-color:var(--acento); color:var(--acento); background:#f0fbf9; }
+  label { display:block; font-size:12px; font-weight:600; color:var(--suave); margin:14px 0 6px; }
+  input { width:100%; padding:11px 12px; border:1px solid var(--linea); border-radius:8px; font-size:16px; font-family:inherit; }
+  input:focus { outline:2px solid var(--acento); border-color:transparent; }
+  .fila { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .boton { width:100%; margin-top:22px; padding:14px; border:0; border-radius:8px; background:var(--acento); color:#fff; font-size:15px; font-weight:700; cursor:pointer; }
+  .boton:disabled { opacity:.55; cursor:wait; }
+  .secundario { background:none; border:0; color:var(--suave); text-decoration:underline; margin-top:12px; cursor:pointer; font-size:13px; width:100%; }
+  .error { margin-top:14px; padding:10px 12px; border-radius:8px; background:#fdecea; color:var(--error); font-size:13px; }
+  .banco h2 { margin:0 0 4px; font-size:17px; }
+  .banco p { margin:0; font-size:13px; color:var(--suave); }
+  .resultado { text-align:center; padding:20px 4px; }
+  .resultado .icono { font-size:44px; }
+  .resultado h2 { margin:10px 0 6px; }
+  .resultado p { color:var(--suave); margin:4px 0; }
+  details { margin:20px auto; max-width:880px; padding:0 16px; font-size:13px; }
+  summary { cursor:pointer; color:var(--suave); }
+  table { width:100%; border-collapse:collapse; margin-top:10px; background:#fff; }
+  td, th { border:1px solid var(--linea); padding:6px 8px; text-align:left; font-family: ui-monospace, Consolas, monospace; font-size:12px; }
+  th { font-family:inherit; background:var(--fondo); }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<header><strong>PagoSim</strong><span>Pago seguro · conexión cifrada</span></header>
+<div class="aviso-prueba">Ambiente de pruebas: no se cobra dinero real.</div>
+
+<main>
+  <section class="caja resumen" aria-label="Resumen de la compra">
+    <dl>
+      <dt>Comercio</dt><dd id="comercio">…</dd>
+      <dt>Orden de compra</dt><dd id="pedido">…</dd>
+      <dt>Monto a pagar</dt><dd class="monto" id="monto">…</dd>
+    </dl>
+    <div class="reloj" id="reloj" aria-live="off"></div>
+  </section>
+
+  <section class="caja" aria-live="polite">
+    <!-- 1. Elegir medio y datos de la tarjeta -->
+    <form id="paso-tarjeta" novalidate>
+      <div class="pestanas" role="tablist">
+        <button type="button" role="tab" data-tipo="credito" aria-selected="true">Tarjeta de crédito</button>
+        <button type="button" role="tab" data-tipo="debito" aria-selected="false">Tarjeta de débito</button>
+      </div>
+      <label for="numero">Número de tarjeta</label>
+      <input id="numero" inputmode="numeric" autocomplete="cc-number" placeholder="0000 0000 0000 0000" maxlength="23" required>
+      <div class="fila" id="solo-credito">
+        <div>
+          <label for="vencimiento">Vencimiento (MM/AA)</label>
+          <input id="vencimiento" inputmode="numeric" autocomplete="cc-exp" placeholder="MM/AA" maxlength="5">
+        </div>
+        <div>
+          <label for="cvv">CVV</label>
+          <input id="cvv" inputmode="numeric" autocomplete="cc-csc" placeholder="123" maxlength="4" type="password">
+        </div>
+      </div>
+      <div class="error" id="error-tarjeta" role="alert" hidden></div>
+      <button class="boton" type="submit" id="pagar">Pagar</button>
+      <button class="secundario" type="button" data-anular>Anular compra y volver al comercio</button>
+    </form>
+
+    <!-- 2. Débito: login del banco -->
+    <form id="paso-banco" class="banco" novalidate hidden>
+      <h2>Banco Simulado</h2>
+      <p id="medio-banco"></p>
+      <label for="rut">RUT</label>
+      <input id="rut" autocomplete="username" placeholder="11.111.111-1" maxlength="12">
+      <label for="clave">Clave del banco</label>
+      <input id="clave" type="password" autocomplete="current-password" maxlength="30">
+      <div class="error" id="error-banco" role="alert" hidden></div>
+      <button class="boton" type="submit" id="entrar-banco">Autorizar pago</button>
+      <button class="secundario" type="button" data-anular>Anular compra y volver al comercio</button>
+    </form>
+
+    <!-- 3. Resultado -->
+    <div id="paso-resultado" class="resultado" hidden>
+      <div class="icono" id="icono"></div>
+      <h2 id="titulo-resultado"></h2>
+      <p id="detalle-resultado"></p>
+      <p id="volviendo"></p>
+      <button class="boton" type="button" id="volver">Volver al comercio</button>
+    </div>
+  </section>
+</main>
+
+<details>
+  <summary>Tarjetas de prueba</summary>
+  <table id="tarjetas"><thead><tr><th>Caso</th><th>Número</th><th>Venc.</th><th>CVV</th><th>RUT banco</th><th>Clave</th></tr></thead><tbody></tbody></table>
+</details>
+
+<script>
+  const token = location.pathname.split('/').pop()
+  const $ = (id) => document.getElementById(id)
+  const pesos = new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' })
+  let tipo = 'credito'
+  let transaccion = null
+  let segundos = 0
+
+  async function llamar(ruta, cuerpo) {
+    const respuesta = await fetch(`/transacciones/${token}${ruta}`, {
+      method: cuerpo === undefined ? 'GET' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: cuerpo === undefined ? undefined : JSON.stringify(cuerpo),
+    })
+    if (!respuesta.ok) throw new Error(respuesta.status === 404 ? 'Esta transacción no existe.' : 'La pasarela no respondió.')
+    return respuesta.json()
+  }
+
+  function mostrarError(id, texto) {
+    $(id).hidden = !texto
+    $(id).textContent = texto || ''
+  }
+
+  function pintar(t) {
+    transaccion = t
+    segundos = t.segundos_restantes
+    $('comercio').textContent = t.comercio
+    $('pedido').textContent = `#${t.pedido_id}`
+    $('monto').textContent = pesos.format(t.monto)
+
+    const final = !['pendiente', 'banco'].includes(t.estado)
+    $('paso-tarjeta').hidden = t.estado !== 'pendiente'
+    $('paso-banco').hidden = t.estado !== 'banco'
+    $('paso-resultado').hidden = !final
+    $('reloj').hidden = final
+
+    if (t.estado === 'pendiente') mostrarError('error-tarjeta', t.error)
+    if (t.estado === 'banco') {
+      $('medio-banco').textContent = `Ingresa al banco para autorizar el pago con tu ${t.medio}.`
+      mostrarError('error-banco', t.error)
+    }
+    if (final) mostrarResultado(t)
+  }
+
+  function mostrarResultado(t) {
+    const aprobada = t.estado === 'autorizada' || t.estado === 'cobrada'
+    $('icono').textContent = aprobada ? '✅' : '❌'
+    $('titulo-resultado').textContent = aprobada ? 'Pago aprobado' : 'Pago rechazado'
+    $('detalle-resultado').textContent = aprobada ? `${t.medio} · ${pesos.format(t.monto)}` : t.motivo
+    // Igual que una pasarela real: vuelve sola al comercio, que es quien confirma el cobro.
+    let quedan = 4
+    const tic = () => {
+      $('volviendo').textContent = `Volviendo al comercio en ${quedan} s…`
+      if (quedan-- === 0) volver()
+    }
+    tic()
+    clearInterval(window.cuentaVuelta)
+    window.cuentaVuelta = setInterval(tic, 1000)
+  }
+
+  function volver() {
+    clearInterval(window.cuentaVuelta)
+    location.assign(transaccion.url_retorno)
+  }
+
+  function elegirTipo(nuevo) {
+    tipo = nuevo
+    document.querySelectorAll('[role=tab]').forEach((b) => b.setAttribute('aria-selected', b.dataset.tipo === tipo))
+    $('solo-credito').hidden = tipo === 'debito'
+    mostrarError('error-tarjeta', null)
+  }
+
+  async function enviar(evento, ruta, cuerpo, boton) {
+    evento.preventDefault()
+    $(boton).disabled = true
+    try {
+      pintar(await llamar(ruta, cuerpo))
+    } catch (error) {
+      mostrarError(ruta === '/banco' ? 'error-banco' : 'error-tarjeta', error.message)
+    } finally {
+      $(boton).disabled = false
+    }
+  }
+
+  // Formato mientras se escribe: 4111 1111 1111 1111 y MM/AA.
+  $('numero').addEventListener('input', (e) => {
+    e.target.value = e.target.value.replace(/\D/g, '').slice(0, 19).replace(/(\d{4})(?=\d)/g, '$1 ')
+  })
+  $('vencimiento').addEventListener('input', (e) => {
+    const d = e.target.value.replace(/\D/g, '').slice(0, 4)
+    e.target.value = d.length > 2 ? `${d.slice(0, 2)}/${d.slice(2)}` : d
+  })
+  $('cvv').addEventListener('input', (e) => { e.target.value = e.target.value.replace(/\D/g, '') })
+
+  document.querySelectorAll('[role=tab]').forEach((b) => b.addEventListener('click', () => elegirTipo(b.dataset.tipo)))
+  $('paso-tarjeta').addEventListener('submit', (e) =>
+    enviar(e, '/tarjeta', { tipo, numero: $('numero').value, vencimiento: $('vencimiento').value, cvv: $('cvv').value }, 'pagar'))
+  $('paso-banco').addEventListener('submit', (e) => {
+    enviar(e, '/banco', { rut: $('rut').value, clave: $('clave').value }, 'entrar-banco')
+    $('clave').value = ''
+  })
+  document.querySelectorAll('[data-anular]').forEach((b) => b.addEventListener('click', async () => pintar(await llamar('/anular', {}))))
+  $('volver').addEventListener('click', volver)
+
+  // Cuenta regresiva: cuando llega a 0 se pregunta a la pasarela, que es la que manda.
+  setInterval(async () => {
+    if (!transaccion || !['pendiente', 'banco'].includes(transaccion.estado)) return
+    segundos = Math.max(0, segundos - 1)
+    const m = Math.floor(segundos / 60), s = String(segundos % 60).padStart(2, '0')
+    $('reloj').textContent = `Tienes ${m}:${s} para completar el pago`
+    $('reloj').classList.toggle('urgente', segundos < 60)
+    if (segundos === 0) pintar(await llamar(''))
+  }, 1000)
+
+  llamar('').then(pintar).catch((error) => {
+    $('paso-tarjeta').hidden = true
+    $('paso-resultado').hidden = false
+    $('icono').textContent = '⚠️'
+    $('titulo-resultado').textContent = error.message
+    $('volver').hidden = true
+  })
+
+  fetch('/tarjetas-prueba').then((r) => r.json()).then((tarjetas) => {
+    $('tarjetas').querySelector('tbody').innerHTML = tarjetas.map((t) =>
+      `<tr><td>${t.caso}</td><td>${t.numero.replace(/(\d{4})(?=\d)/g, '$1 ')}</td><td>${t.vencimiento}</td>` +
+      `<td>${t.cvv}</td><td>${t.rut ?? '—'}</td><td>${t.clave_banco ?? '—'}</td></tr>`).join('')
+  })
+</script>
+</body>
+</html>

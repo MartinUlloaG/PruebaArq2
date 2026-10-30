@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -5,6 +6,7 @@ from fastapi import FastAPI
 from app import trabajadores
 from app.api import administracion, autenticacion, catalogo, inventario, pedidos, recomendaciones
 from app.configuracion import configuracion
+from app.infraestructura import servicios_externos
 
 
 @asynccontextmanager
@@ -28,4 +30,11 @@ app.include_router(administracion.enrutador)
 
 @app.get("/salud")
 def salud():
-    return {"estado": "ok"}
+    # Lo muestra la simulación de 100 mil: el estado del circuito, el TTL de la reserva y
+    # qué copia del núcleo respondió (con --workers 4 se ven las 4 réplicas).
+    return {
+        "estado": "ok",
+        "circuito_recomendaciones": servicios_externos.recomendaciones.circuito.estado,
+        "segundos_reserva": configuracion.segundos_reserva,
+        "proceso": os.getpid(),
+    }

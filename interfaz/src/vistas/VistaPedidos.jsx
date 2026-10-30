@@ -77,12 +77,26 @@ export default function VistaPedidos() {
                     <p className="text-xs uppercase tracking-wider font-bold text-[#1e1e1e]">
                       {p.items.map((i) => `${i.cantidad} × ${i.nombre}`).join(' • ')}
                     </p>
+                    {(p.pago?.medio || p.pago?.motivo) && (
+                      <p className="text-[11px] text-[#3d5a80] mt-1">
+                        {[p.pago.medio, p.estado === 'fallido' && p.pago.motivo].filter(Boolean).join(' — ')}
+                      </p>
+                    )}
                   </div>
                   <div className="flex items-center gap-6">
                     <span className="text-sm font-bold font-mono text-[#293241]">{formatearPrecio(p.total)}</span>
                     <span className={`px-3 py-1 text-[10px] uppercase tracking-widest font-bold border ${estado.clase}`}>
                       {estado.texto}
                     </span>
+                    {/* Si volvió atrás sin pagar, puede retomar mientras la reserva siga viva. */}
+                    {p.estado === 'stock_reservado' && p.pago?.url_pago && (
+                      <a
+                        href={p.pago.url_pago}
+                        className="px-3 py-1 text-[10px] uppercase tracking-widest font-bold bg-[#ee6c4d] text-white"
+                      >
+                        Ir a pagar
+                      </a>
+                    )}
                   </div>
                 </li>
               )

@@ -44,6 +44,9 @@ class Usuario(Base):
     correo: Mapped[str] = mapped_column(String(255), unique=True)
     clave_hash: Mapped[str] = mapped_column(String(255))
     rol: Mapped[str] = mapped_column(String(20), server_default="cliente")
+    # Claves malas seguidas; al llegar al máximo la cuenta queda bloqueada hasta bloqueado_hasta.
+    intentos_fallidos: Mapped[int] = mapped_column(server_default="0")
+    bloqueado_hasta: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     creado_en: Mapped[datetime] = _creado_en()
 
 
@@ -82,6 +85,7 @@ class Pedido(Base):
     creado_en: Mapped[datetime] = _creado_en()
 
     items: Mapped[list["ItemPedido"]] = relationship(back_populates="pedido")
+    pago: Mapped["Pago | None"] = relationship()
 
 
 class ItemPedido(Base):
@@ -126,6 +130,13 @@ class Pago(Base):
     estado: Mapped[str] = mapped_column(String(20), server_default="pendiente")
     monto: Mapped[int]
     referencia_pasarela: Mapped[str | None] = mapped_column(String(100))
+    # Transacción en la pasarela: el token identifica la vuelta del comprador y la URL es
+    # donde paga. Los datos de la tarjeta nunca llegan aquí, solo el medio enmascarado.
+    token_pasarela: Mapped[str | None] = mapped_column(String(64), unique=True)
+    url_pago: Mapped[str | None] = mapped_column(String(300))
+    medio: Mapped[str | None] = mapped_column(String(60))  # ej. "Crédito VISA ****1111"
+    motivo: Mapped[str | None] = mapped_column(String(200))  # por qué se rechazó
+    confirmacion_pedida_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     creado_en: Mapped[datetime] = _creado_en()
 
 

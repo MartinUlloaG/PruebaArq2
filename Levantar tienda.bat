@@ -11,15 +11,15 @@ if errorlevel 1 (
   exit /b 1
 )
 
-cd /d C:\comercio
+cd /d "%~dp0"
 echo Postgres, Kafka y Mongo...
 docker compose up -d
 
-start "Backend - servicio de compras (8000)" cmd /k "cd /d C:\comercio\servicioCompras && .venv\Scripts\activate && uvicorn app.principal:app"
-start "Pasarela simulada (8001)" cmd /k "cd /d C:\comercio\pasarelaSimulada && ..\servicioCompras\.venv\Scripts\activate && uvicorn pasarela:app --port 8001"
-start "Servicio de pagos (Kafka)" cmd /k "cd /d C:\comercio\servicioPagos && ..\servicioCompras\.venv\Scripts\activate && python pagos.py"
-start "Recomendaciones (gRPC 50051)" cmd /k "cd /d C:\comercio\servicioRecomendaciones && ..\servicioCompras\.venv\Scripts\activate && python recomendaciones.py"
-start "Front (5173)" cmd /k "cd /d C:\comercio\interfaz && npm run dev"
+start "Backend - servicio de compras (8000)" cmd /k "cd servicioCompras && .venv\Scripts\activate && uvicorn app.principal:app"
+start "Pasarela simulada (8001)" cmd /k "cd pasarelaSimulada && ..\servicioCompras\.venv\Scripts\activate && uvicorn pasarela:app --port 8001"
+start "Servicio de pagos (Kafka)" cmd /k "cd servicioPagos && ..\servicioCompras\.venv\Scripts\activate && python pagos.py"
+start "Recomendaciones (gRPC 50051)" cmd /k "cd servicioRecomendaciones && ..\servicioCompras\.venv\Scripts\activate && python recomendaciones.py"
+start "Front (5173)" cmd /k "cd interfaz && npm run dev"
 
 echo.
 echo Esperando que arranquen...

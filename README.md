@@ -1,193 +1,135 @@
-# Tienda Arquitectura de Software - Eva 2
+# Tienda KYRO · Arquitectura de Software, Eva 2
 
-Son 5 partes:
-- servicioCompras: el backend (FastAPI + PostgreSQL + MongoDB)
-- servicioPagos: lee los pagos desde Kafka y cobra en la pasarela
-- pasarelaSimulada: la pasarela de pago, corre aparte en el puerto 8001
-- servicioRecomendaciones: los más vendidos, por gRPC (puerto 50051). Es el servicio secundario: si se cae la compra sigue
-- interfaz: el front (React + Vite + Zustand)
+Tienda para un Cyberday: muchos compradores y poco stock. No vende de más, no cobra dos veces y si
+un servicio se cae la compra sigue.
 
-Cómo se hablan: front -> backend por REST, backend -> recomendaciones por gRPC (contrato en protos/),
-backend <-> servicio de pagos por Kafka, servicio de pagos -> pasarela por REST (es externa).
+| Parte | Qué hace | Dirección |
+|---|---|---|
+| `interfaz` | El front (React + Vite + Zustand) | http://localhost:5173 |
+| `servicioCompras` | El núcleo: login, catálogo, stock, pedidos y la Saga (FastAPI) | http://127.0.0.1:8000/docs |
+| `pasarelaSimulada` | La pasarela de pago, como Webpay (página para poner la tarjeta) | http://127.0.0.1:8001/docs |
+| `servicioPagos` | Crea y confirma los pagos en la pasarela (por Kafka) | http://127.0.0.1:8002/estado |
+| `servicioRecomendaciones` | Los más vendidos, por gRPC. Si se cae, la tienda sigue | puerto 50051 |
+| Docker | PostgreSQL, MongoDB, Kafka y Kafka UI | Kafka UI: http://127.0.0.1:8080 |
 
-Postgres guarda el stock, los pedidos y los pagos. Mongo guarda el catálogo que ve el cliente
-(categoría, tallas, colores, material). Cada cambio de stock pasa por Kafka y se copia a Mongo.
+## Qué hay que tener instalado
 
-## Versiones
-
+- Windows 10 u 11 (los atajos `.bat` son de Windows; más abajo están los comandos a mano)
 - Python 3.13
 - Node.js 24
-- Docker Desktop abierto (si no está abierto la base de datos no levanta)
+- Docker Desktop, abierto
+- Git
 
-## Primera vez
-
-Copiar el .env.ejemplo como .env y cambiar la clave de la base y el secreto del JWT:
+## Instalar (una sola vez)
 
 ```bat
-cd C:\comercio
+git clone https://github.com/MartinUlloaG/PruebaArq2.git
+cd PruebaArq2
 copy .env.ejemplo .env
-notepad .env
 ```
 
-Levantar Postgres, Kafka y Mongo:
+Abrir `.env` y cambiar `POSTGRES_PASSWORD` y `JWT_SECRETO` por cualquier texto largo.
 
 ```bat
 docker compose up -d
-```
 
-Instalar el backend, crear las tablas y cargar los datos de prueba:
-
-```bat
-cd C:\comercio\servicioCompras
+cd servicioCompras
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r dependencias.txt
 alembic upgrade head
 python -m app.infraestructura.semilla
-```
 
-La semilla llena las dos bases: usuarios, 34 prendas y pedidos de ejemplo. Se puede correr varias
-veces, no duplica nada. Para partir de cero (por ej. antes de grabar el video):
-
-```bat
-python -m app.infraestructura.semilla --reiniciar
-```
-
-Instalar el front:
-
-```bat
-cd C:\comercio\interfaz
+cd ..\interfaz
 npm install
 ```
 
-## Cómo levantarlo
+La semilla crea 1002 usuarios, 34 prendas y pedidos de ejemplo (la primera vez se demora como un
+minuto). Para dejar todo como nuevo: `python -m app.infraestructura.semilla --reiniciar`.
 
-Cada servicio en una sola consola
+## Levantar
 
-con Docker Desktop abierto en C:\comercio: `docker compose up -d` (levanta Postgres, Kafka y Mongo)
+Con Docker Desktop abierto, doble clic en **`Levantar tienda.bat`**. Abre una consola por servicio y
+el navegador en http://localhost:5173. Para apagar un servicio se cierra su consola.
 
-Consola 1 - backend (queda en http://127.0.0.1:8000)
+A mano, cada línea en una consola distinta, desde la carpeta del repo:
 
 ```bat
-cd C:\comercio\servicioCompras
-.venv\Scripts\activate
-uvicorn app.principal:app --reload
+docker compose up -d
+cd servicioCompras && .venv\Scripts\activate && uvicorn app.principal:app
+cd pasarelaSimulada && ..\servicioCompras\.venv\Scripts\activate && uvicorn pasarela:app --port 8001
+cd servicioPagos && ..\servicioCompras\.venv\Scripts\activate && python pagos.py
+cd servicioRecomendaciones && ..\servicioCompras\.venv\Scripts\activate && python recomendaciones.py
+cd interfaz && npm run dev
 ```
 
-Consola 2 - pasarela (usa el mismo venv del backend porque ya tiene FastAPI):
+Los otros servicios usan el venv de `servicioCompras` (ahí está todo instalado).
+
+## Probar
+
+| Rol | Correo | Clave |
+|---|---|---|
+| Cliente | cliente@demo.cl (y cliente01 a cliente999) | Cliente-Demo-2026 |
+| Operador | operador@demo.cl | Operador-Demo-2026 |
+| Administrador | admin@demo.cl | Admin-Demo-2026 |
+
+Al apretar "Ir a pagar" la tienda reserva el stock y manda a la página de la pasarela. Ahí se elige
+crédito o débito. Las tarjetas de prueba salen abajo en esa misma página (todas con CVV 123):
+
+| Caso | Número | Vence | Banco (débito) |
+|---|---|---|---|
+| Crédito, se aprueba | 4111 1111 1111 1111 | 12/29 | |
+| Crédito, sin cupo | 5555 5555 5555 4444 | 12/29 | |
+| Crédito, vencida | 4000 0000 0000 0002 | 03/24 | |
+| Débito, se aprueba | 4000 0566 5566 5556 | 12/29 | RUT 11.111.111-1, clave 1234 |
+| Débito, sin saldo | 5200 8282 8282 8210 | 12/29 | RUT 22.222.222-2, clave 1234 |
+
+Cosas que se pueden probar:
+- 3 claves malas en el login: la cuenta se bloquea 5 minutos y no entrega token ni con la buena.
+- 3 CVV malos o 3 claves del banco malas: la tarjeta o el usuario del banco quedan bloqueados.
+- Pago rechazado o "Anular compra": no se cobra y el stock vuelve al tiro.
+- Pasarela caída: en http://127.0.0.1:8001/docs, `PUT /simulacion` con `{"modo": "falla"}`. El
+  servicio de pagos reintenta, el Circuit Breaker se abre y la reserva vence sola.
+- Recomendaciones caído: se cierra su consola y el catálogo sigue funcionando.
+
+La reserva dura 7 minutos. Para verla vencer más rápido está `Levantar tienda (video).bat` (45 s).
+
+## Pruebas automáticas
+
+Con Docker arriba y **los servicios apagados** (las pruebas de Kafka usan los mismos grupos):
 
 ```bat
-cd C:\comercio\pasarelaSimulada
-..\servicioCompras\.venv\Scripts\activate
-uvicorn pasarela:app --port 8001
-```
-
-Consola 3 - servicio de pagos (también usa el venv del backend):
-
-```bat
-cd C:\comercio\servicioPagos
-..\servicioCompras\.venv\Scripts\activate
-python pagos.py
-```
-
-Consola 4 - recomendaciones por gRPC (también usa el venv del backend):
-
-```bat
-cd C:\comercio\servicioRecomendaciones
-..\servicioCompras\.venv\Scripts\activate
-python recomendaciones.py
-```
-
-Consola 5 - front (abrir http://localhost:5173):
-
-```bat
-cd C:\comercio\interfaz
-npm run dev
-```
-
-
-## Probar la pasarela
-
-En http://127.0.0.1:8001/docs con PUT /simulacion se cambia el modo sin reiniciarla:
-- aprueba: aprueba todo
-- rechaza: rechaza el pago y el stock se devuelve
-- lenta: se demora más de los 2 segundos que espera el backend
-- falla: responde error 503
-
-Si falla 3 veces seguidas se abre el Circuit Breaker. Si no se puede pagar, al minuto el stock vuelve.
-En GET /cobros se ven los cobros hechos.
-
-## Usuarios de prueba
-
-Estas claves son solo para probar en local. En la base se guardan con hash Argon2id.
-
-- Cliente: cliente@demo.cl / Cliente-Demo-2026 (ve el catálogo, compra y ve sus pedidos)
-- Operador: operador@demo.cl / Operador-Demo-2026 (ve el inventario)
-- Administrador: admin@demo.cl / Admin-Demo-2026 (ve el inventario y los usuarios)
-
-
-## Pruebas
-
-Con la base de datos arriba:
-
-```bat
-cd C:\comercio\servicioCompras
+cd servicioCompras
 .venv\Scripts\activate
 python -m pytest
 ```
 
-Ojo: las pruebas de Kafka se corren con el backend y el servicio de pagos apagados, porque usan
-los mismos grupos de Kafka y se roban los mensajes.
+Son 65 pruebas: sobreventa, idempotencia, la Saga por Kafka, el Circuit Breaker, roles y bloqueo
+del login.
 
-Las más importantes:
-- test_pedidos.py: 100 compras al mismo tiempo de un producto con stock 1 y solo 1 se acepta
-- test_saga_kafka.py: la compra pasando por Kafka
-- test_circuit_breaker.py: los estados cerrado, abierto y semiabierto
-- test_autenticacion.py: un cliente no puede entrar a las rutas del operador ni del administrador
-- test_esquema.py: la base no deja stock negativo y el stock cuadra con los movimientos
+## Simulaciones de carga
 
-La comparación de sobreventa que sale en el informe:
+Con la tienda levantada:
 
-```bat
-python -m demostraciones.comparar_sobreventa
-```
+- `Simulación Cyberday 1000 compradores.bat`: 1000 compradores por 100 unidades, cada uno con un
+  perfil (paga bien, sin cupo, se equivoca de CVV o de clave, anula, se le olvida la clave del login).
+- `Simulación 50 usuarios triple clic.bat`: lo mismo, apretando cada botón 3 veces.
+- `Simulación Cyberday 100 mil compradores.bat`: 100.000 compradores con un panel en vivo en la
+  consola (abrir la ventana maximizada). Botar la pasarela a propósito y mostrar el Circuit Breaker.
+  Para esta hay que levantar la tienda con **`Levantar tienda (carga).bat`** (el núcleo con 4 copias).
+
+Las tres revisan al final que no haya sobreventa, que los cobros calcen con los pedidos pagados,
+que nadie pague dos veces y que el stock sea el mismo en Postgres, Mongo y la auditoría.
 
 ## Carpetas
 
 ```
-servicioCompras/app/api              endpoints, validaciones y roles
+servicioCompras/app/api              endpoints, validaciones, roles y load shedding
 servicioCompras/app/dominio          reglas de la compra (la Saga)
-servicioCompras/app/infraestructura  modelos, repositorios, seguridad, circuit breaker
-servicioCompras/migraciones          alembic
+servicioCompras/app/infraestructura  modelos, repositorios, Kafka, Circuit Breaker, seguridad
+servicioCompras/migraciones          migraciones de Alembic
 servicioCompras/pruebas              pytest
-servicioPagos                        servicio de pagos
-interfaz/src/vistas                  las pantallas (View)
-interfaz/src/modelosVista            el estado (ViewModel)
-interfaz/src/servicios               las llamadas a la API
-```
-
-## Seguridad
-
-- El token de sesión dura 30 minutos.
-
-## Ver Kafka
-
-Kafka UI queda en http://127.0.0.1:8080 (lo levanta el docker compose). Ahí se ven los tópicos
-(pagos.solicitudes, pagos.resultados, pagos.muertos, catalogo.stock, pedidos.pagados), cada mensaje
-y los grupos de consumidores.
-
-## Atajos
-
-- Levantar tienda.bat: abre todas las consolas de arriba.
-- Simulación de 100 usuarios.bat: 100 clientes compran el mismo producto al mismo tiempo y muestra
-  que se vende exactamente lo que hay y que el sistema no se cae
-  (`python -m demostraciones.simulacion_100_usuarios`).
-
-Si se cambia protos/recomendaciones.proto hay que regenerar el código de gRPC:
-
-```bat
-cd C:\comercio\servicioCompras
-python -m grpc_tools.protoc -Iapp/contratos=../protos --python_out=. --grpc_python_out=. app/contratos/recomendaciones.proto
-cd C:\comercio\servicioRecomendaciones
-python -m grpc_tools.protoc -I../protos --python_out=. --grpc_python_out=. ../protos/recomendaciones.proto
+servicioCompras/demostraciones       simulaciones de carga y comparación de sobreventa
+interfaz/src                         vistas (View), modelosVista (ViewModel) y servicios (API)
+protos                               contrato gRPC de recomendaciones
 ```

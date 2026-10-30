@@ -1,7 +1,13 @@
-"""Servicio de pagos: el participante de la Saga que cobra.
+"""Servicio de pagos: el participante de la Saga que habla con la pasarela.
 
-Lee las solicitudes de pagos.solicitudes, cobra en la pasarela externa (REST, con
-tiempo límite y Circuit Breaker) y publica el resultado en pagos.resultados.
+Lee pagos.solicitudes, llama a la pasarela externa (REST, con tiempo límite y Circuit
+Breaker) y publica en pagos.resultados. Hay dos tipos de solicitud, como en una
+pasarela real:
+- "iniciar": crea la transacción en la pasarela y publica el token y la URL donde paga
+  el comprador ("transaccion_creada").
+- "confirmar": el comprador ya volvió de la pasarela; se confirma y recién ahí se cobra.
+  Publica si se cobró o no ("resultado").
+Los mensajes de un pedido van con la clave del pedido, así llegan en orden.
 
 - Si la pasarela no responde, se reintenta esperando 1, 2 y 4 segundos. Siempre con la
   misma clave de idempotencia: si el primer intento sí alcanzó a cobrar, el reintento
@@ -18,6 +24,7 @@ import json
 import logging
 import os
 import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import httpx
 from confluent_kafka import Consumer, KafkaException, Producer
@@ -35,6 +42,11 @@ MUERTOS = "pagos.muertos"
 
 registro = logging.getLogger("servicio-pagos")
 
+# Estado en vivo (GET http://127.0.0.1:8002/estado): lo lee la simulación de 100 mil
+# para mostrar el Circuit Breaker de verdad, no un dibujo.
+PUERTO_ESTADO = int(os.environ.get("PAGOS_PUERTO_ESTADO", 8002))
+estadisticas = {"procesados": 0, "reintentos": 0, "a_la_dlq": 0}
+
 
 class PasarelaNoDisponible(Exception):
     pass
@@ -47,14 +59,17 @@ class ClientePasarela:
         self.http = http
         self.circuito = circuito
 
-    def autorizar(self, pedido_id: int, monto: int, clave_idempotencia: str) -> dict:
+    def crear_transaccion(self, solicitud: dict) -> dict:
+        cuerpo = {k: solicitud[k] for k in ("pedido_id", "monto", "url_retorno", "pagar_antes_de")}
+        return self._post("/transacciones", cuerpo, solicitud["clave_idempotencia"] + "-crear")
+
+    def confirmar(self, token: str, clave_idempotencia: str) -> dict:
+        return self._post(f"/transacciones/{token}/confirmar", {}, clave_idempotencia)
+
+    def _post(self, ruta: str, cuerpo: dict, clave_idempotencia: str) -> dict:
         def llamada() -> dict:
             try:
-                respuesta = self.http.post(
-                    "/autorizaciones",
-                    json={"pedido_id": pedido_id, "monto": monto},
-                    headers={"Idempotency-Key": clave_idempotencia},
-                )
+                respuesta = self.http.post(ruta, json=cuerpo, headers={"Idempotency-Key": clave_idempotencia})
                 respuesta.raise_for_status()
                 return respuesta.json()
             except (httpx.HTTPError, ValueError) as error:
@@ -69,18 +84,32 @@ class ClientePasarela:
 
 
 def procesar_solicitud(solicitud: dict, pasarela: ClientePasarela) -> dict:
-    """Cobra y arma el evento de resultado. Lanza PasarelaNoDisponible si no se pudo."""
-    respuesta = pasarela.autorizar(
-        solicitud["pedido_id"], solicitud["monto"], solicitud["clave_idempotencia"]
-    )
-    return {
-        # Un solo resultado posible por pedido: si se publica dos veces, el núcleo descarta el segundo.
-        "id_evento": f"resultado-pedido-{solicitud['pedido_id']}",
-        "pedido_id": solicitud["pedido_id"],
-        "autorizado": respuesta["autorizado"],
-        "referencia": respuesta.get("referencia"),
-        "motivo": respuesta.get("motivo"),
-    }
+    """Llama a la pasarela y arma el evento para el núcleo. Lanza PasarelaNoDisponible si
+    no se pudo. Los id_evento son fijos por pedido: si se publica dos veces, el núcleo
+    descarta el segundo."""
+    pedido_id = solicitud["pedido_id"]
+    if solicitud["tipo"] == "iniciar":
+        respuesta = pasarela.crear_transaccion(solicitud)
+        return {
+            "id_evento": f"transaccion-pedido-{pedido_id}",
+            "tipo": "transaccion_creada",
+            "pedido_id": pedido_id,
+            "token": respuesta["token"],
+            "url_pago": respuesta["url"],
+        }
+    if solicitud["tipo"] == "confirmar":
+        # Misma clave siempre: si se reintenta o Kafka entrega dos veces, se cobra una vez.
+        respuesta = pasarela.confirmar(solicitud["token"], solicitud["clave_idempotencia"])
+        return {
+            "id_evento": f"resultado-pedido-{pedido_id}",
+            "tipo": "resultado",
+            "pedido_id": pedido_id,
+            "autorizado": respuesta["autorizado"],
+            "referencia": respuesta.get("referencia"),
+            "medio": respuesta.get("medio"),
+            "motivo": respuesta.get("motivo"),
+        }
+    raise ValueError(f"Tipo de solicitud desconocido: {solicitud['tipo']}")
 
 
 def crear_topicos() -> None:
@@ -121,7 +150,16 @@ def atender(
                     resultado = procesar_solicitud(solicitud, pasarela)
                     productor.produce(RESULTADOS_PAGO, key=mensaje.key(), value=json.dumps(resultado))
                     productor.flush(10)
-                    registro.info("Pedido %s: autorizado=%s", solicitud["pedido_id"], resultado["autorizado"])
+                    estadisticas["procesados"] += 1
+                    registro.info("Pedido %s: %s", solicitud["pedido_id"], resultado["tipo"])
+                    break
+                except (KeyError, ValueError) as error:
+                    # Mensaje mal formado: reintentar no lo arregla, va directo a la DLQ.
+                    registro.error("Solicitud mal formada a la DLQ: %s", error)
+                    muerto = {"topico_origen": SOLICITUDES_PAGO, "error": repr(error), "evento": solicitud}
+                    productor.produce(MUERTOS, key=mensaje.key(), value=json.dumps(muerto))
+                    productor.flush(10)
+                    estadisticas["a_la_dlq"] += 1
                     break
                 except PasarelaNoDisponible as error:
                     if intento == intentos - 1:
@@ -129,11 +167,37 @@ def atender(
                         muerto = {"topico_origen": SOLICITUDES_PAGO, "error": str(error), "evento": solicitud}
                         productor.produce(MUERTOS, key=mensaje.key(), value=json.dumps(muerto))
                         productor.flush(10)
+                        estadisticas["a_la_dlq"] += 1
                     else:
+                        estadisticas["reintentos"] += 1
                         detener.wait(espera_inicial * 2**intento)
-            consumidor.commit(mensaje, asynchronous=False)  # recién aquí se da por leído
+            try:
+                consumidor.commit(mensaje, asynchronous=False)  # recién aquí se da por leído
+            except KafkaException as error:
+                # Rebalanceo del grupo: el mensaje se volverá a entregar y las claves de
+                # idempotencia evitan cobrar dos veces. El bucle no se puede morir por esto.
+                registro.warning("No se pudo confirmar el offset, se releerá: %s", error)
     finally:
         consumidor.close()
+
+
+def servir_estado(pasarela: ClientePasarela) -> None:
+    """Responde el estado del circuito y los contadores en un hilo aparte."""
+
+    class Estado(BaseHTTPRequestHandler):
+        def do_GET(self):
+            circuito = pasarela.circuito
+            cuerpo = json.dumps({"circuito": circuito.estado, "aperturas": circuito.aperturas, **estadisticas})
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(cuerpo.encode())
+
+        def log_message(self, *_):
+            pass  # sin una línea por consulta en la consola
+
+    servidor = ThreadingHTTPServer(("127.0.0.1", PUERTO_ESTADO), Estado)
+    threading.Thread(target=servidor.serve_forever, daemon=True).start()
 
 
 if __name__ == "__main__":
@@ -144,7 +208,8 @@ if __name__ == "__main__":
         CircuitBreaker("pasarela de pago", umbral_fallas=3, segundos_abierto=10),
     )
     detener = threading.Event()
-    registro.info("Servicio de pagos escuchando %s", SOLICITUDES_PAGO)
+    servir_estado(pasarela)
+    registro.info("Servicio de pagos escuchando %s (estado en :%s/estado)", SOLICITUDES_PAGO, PUERTO_ESTADO)
     try:
         atender(pasarela, detener)
     except KeyboardInterrupt:

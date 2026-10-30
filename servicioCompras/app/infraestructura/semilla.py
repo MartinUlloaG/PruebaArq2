@@ -17,6 +17,7 @@ LAS CLAVES DE ESTOS USUARIOS SON SOLO DE DEMO. En la BD se guardan con hash Argo
 
 import random
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select, text, update
@@ -42,7 +43,7 @@ USUARIOS_DEMO = [
     ("operador@demo.cl", "Operador-Demo-2026", "operador"),
     ("admin@demo.cl", "Admin-Demo-2026", "administrador"),
 ]
-CLIENTES_EXTRA = 99  # cliente01..cliente99@demo.cl, misma clave que cliente@demo.cl (100 clientes en total)
+CLIENTES_EXTRA = 999  # cliente01..cliente999@demo.cl, misma clave que cliente@demo.cl (1000 clientes en total)
 PEDIDOS_HISTORICOS = 60
 
 # Atributos por categoría: cada una tiene los suyos (por eso el catálogo va en Mongo).
@@ -104,12 +105,15 @@ def _crear_usuarios(sesion: Session) -> int:
     cuentas = USUARIOS_DEMO + [
         (f"cliente{n:02d}@demo.cl", clave_cliente, "cliente") for n in range(1, CLIENTES_EXTRA + 1)
     ]
-    creados = 0
-    for correo, clave, rol in cuentas:
-        if sesion.scalar(select(Usuario.id).where(Usuario.correo == correo)) is None:
-            sesion.add(Usuario(correo=correo, clave_hash=hasheador.hash(clave), rol=rol))
-            creados += 1
-    return creados
+    existentes = set(sesion.scalars(select(Usuario.correo)))
+    faltan = [c for c in cuentas if c[0] not in existentes]
+    # Argon2 es lento a propósito (~50 ms por hash): con 1000 cuentas se hashea en paralelo.
+    # Cada cuenta lleva su propio hash (sal distinta), aunque la clave de demo sea la misma.
+    with ThreadPoolExecutor() as hilos:
+        hashes = list(hilos.map(lambda c: hasheador.hash(c[1]), faltan))
+    for (correo, _, rol), clave_hash in zip(faltan, hashes):
+        sesion.add(Usuario(correo=correo, clave_hash=clave_hash, rol=rol))
+    return len(faltan)
 
 
 def _crear_productos(sesion: Session, prendas: list[dict]) -> int:

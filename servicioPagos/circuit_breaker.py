@@ -12,12 +12,15 @@ clientes de servicios externos lanzan excepción solo ante problemas de infraest
 (caída, tiempo límite, 5xx), no ante respuestas válidas como "pago rechazado".
 """
 
+import logging
 import threading
 import time
 from collections.abc import Callable
 from typing import TypeVar
 
 T = TypeVar("T")
+
+registro = logging.getLogger("circuit-breaker")
 
 CERRADO = "cerrado"
 ABIERTO = "abierto"
@@ -45,6 +48,7 @@ class CircuitBreaker:
         self._fallas_seguidas = 0
         self._abierto_desde = 0.0
         self._prueba_en_curso = False
+        self.aperturas = 0  # cuántas veces se ha abierto (lo muestra la simulación de 100 mil)
 
     @property
     def estado(self) -> str:
@@ -71,6 +75,7 @@ class CircuitBreaker:
         # Abierto pasa a semiabierto solo por tiempo: no hace falta un temporizador aparte.
         if self._estado == ABIERTO and self._reloj() - self._abierto_desde >= self.segundos_abierto:
             self._estado = SEMIABIERTO
+            registro.warning("Circuito hacia %s SEMIABIERTO: se deja pasar una llamada de prueba", self.nombre)
         return self._estado
 
     def _registrar_falla(self) -> None:
@@ -78,6 +83,12 @@ class CircuitBreaker:
             self._prueba_en_curso = False
             self._fallas_seguidas += 1
             if self._estado == SEMIABIERTO or self._fallas_seguidas >= self.umbral_fallas:
+                if self._estado != ABIERTO:
+                    self.aperturas += 1
+                    registro.warning(
+                        "Circuito hacia %s ABIERTO tras %s fallas: no se llama por %s s",
+                        self.nombre, self._fallas_seguidas, self.segundos_abierto,
+                    )
                 self._estado = ABIERTO
                 self._abierto_desde = self._reloj()
 
@@ -85,4 +96,6 @@ class CircuitBreaker:
         with self._candado:
             self._prueba_en_curso = False
             self._fallas_seguidas = 0
+            if self._estado != CERRADO:
+                registro.warning("Circuito hacia %s CERRADO: volvió a responder", self.nombre)
             self._estado = CERRADO

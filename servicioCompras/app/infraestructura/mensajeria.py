@@ -85,14 +85,17 @@ def publicar_pendientes(productor: Producer, limite: int = 100) -> int:
         return len(pendientes)
 
 
-def relay_outbox(detener: threading.Event, cada_segundos: float = 0.5) -> None:
+def relay_outbox(detener: threading.Event, cada_segundos: float = 0.5, limite: int = 100) -> None:
     productor = Producer(BASE)
     while not detener.is_set():
         try:
-            publicar_pendientes(productor)
+            publicados = publicar_pendientes(productor, limite)
         except Exception:
             registro.exception("Relay del outbox: falló una pasada, se reintenta")
-        detener.wait(cada_segundos)
+            publicados = 0
+        # Si la pasada salió llena quedan más pendientes (un pico de compras): se sigue al tiro.
+        if publicados < limite:
+            detener.wait(cada_segundos)
 
 
 def consumir(
@@ -135,6 +138,12 @@ def consumir(
                         productor.flush(10)
                     else:
                         detener.wait(espera_inicial * 2**intento)
-            consumidor.commit(mensaje, asynchronous=False)
+            try:
+                consumidor.commit(mensaje, asynchronous=False)
+            except KafkaException as error:
+                # Pasa cuando Kafka reparte las particiones entre varias copias del núcleo
+                # (rebalanceo). El mensaje se volverá a entregar y el consumidor es
+                # idempotente; lo que no puede pasar es que este hilo se muera.
+                registro.warning("No se pudo confirmar el offset, se releerá: %s", error)
     finally:
         consumidor.close()

@@ -1,17 +1,3 @@
-"""Patrón Circuit Breaker: protege al núcleo de un servicio externo lento o caído.
-
-Estados:
-  cerrado     -> las llamadas pasan. Cada falla seguida suma; un éxito reinicia la cuenta.
-  abierto     -> tras `umbral_fallas` fallas seguidas, se rechaza al instante sin llamar,
-                 durante `segundos_abierto`. Nadie se queda esperando el tiempo límite.
-  semiabierto -> pasado ese tiempo, se deja pasar UNA llamada de prueba: si resulta,
-                 vuelve a cerrado; si falla, vuelve a abierto.
-
-Solo cuentan como falla las excepciones que lanza la función protegida. Por eso los
-clientes de servicios externos lanzan excepción solo ante problemas de infraestructura
-(caída, tiempo límite, 5xx), no ante respuestas válidas como "pago rechazado".
-"""
-
 import threading
 import time
 from collections.abc import Callable

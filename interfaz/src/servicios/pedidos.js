@@ -14,6 +14,12 @@ export function comprar(items, claveIdempotencia) {
   })
 }
 
+// El comprador volvió de la pasarela con su token: se pide confirmar el cobro.
+// Se puede repetir sin problema (recargar la página): el servidor confirma una sola vez.
+export function confirmarPago(token) {
+  return pedir('/pedidos/confirmar-pago', { metodo: 'POST', cuerpo: { token } })
+}
+
 // Para seguir el pago: stock_reservado (en proceso), pagado o fallido.
 export function obtenerPedido(pedidoId) {
   return pedir(`/pedidos/${pedidoId}`)
